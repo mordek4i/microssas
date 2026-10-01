@@ -14,7 +14,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { PublicBookingPage } from './components/public/PublicBookingPage';
 import { NotificationToastContainer } from './components/common/NotificationToast';
 import { LandingPage } from './components/landing/LandingPage';
-import { AuthModal } from './components/auth/AuthModal';
+import { AuthScreen } from './components/auth/AuthScreen';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { CheckoutPendingScreen } from './components/subscription/CheckoutPendingScreen';
 import { SubscriptionBlockedScreen } from './components/subscription/SubscriptionBlockedScreen';
@@ -64,8 +64,28 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 2. LANDING PAGE STATE
+  // 2. LANDING PAGE & AUTH STATE
   if (appFlowState === 'LANDING') {
+    if (isAuthModalOpen) {
+      return (
+        <>
+          <AuthScreen
+            initialMode={authMode}
+            onBackToHome={() => setIsAuthModalOpen(false)}
+            onSuccessSignup={async (name, email, password) => {
+              setIsAuthModalOpen(false);
+              await startSignup(name, email, password);
+            }}
+            onSuccessLogin={async (email, password) => {
+              setIsAuthModalOpen(false);
+              await startLogin(email, password);
+            }}
+          />
+          <NotificationToastContainer />
+        </>
+      );
+    }
+
     return (
       <>
         <LandingPage
@@ -81,21 +101,6 @@ const AppContent: React.FC = () => {
             startLogin();
           }}
         />
-
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          initialMode={authMode}
-          onClose={() => setIsAuthModalOpen(false)}
-          onSuccessSignup={async (name, email, password) => {
-            setIsAuthModalOpen(false);
-            await startSignup(name, email, password);
-          }}
-          onSuccessLogin={async (email, password) => {
-            setIsAuthModalOpen(false);
-            await startLogin(email, password);
-          }}
-        />
-
         <NotificationToastContainer />
       </>
     );
