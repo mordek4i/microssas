@@ -8,7 +8,8 @@ import {
   Users, 
   Store, 
   Settings, 
-  ChevronDown
+  ChevronDown,
+  LogOut
 } from 'lucide-react';
 
 export interface SidebarProps {
@@ -23,7 +24,9 @@ export const Sidebar: React.FC<SidebarProps> = () => {
     currentEstablishment, 
     switchEstablishment,
     filteredBookings,
-    goToLanding
+    goToLanding,
+    currentUser,
+    logout
   } = useApp();
 
   const navItems: { id: MainView; label: string; icon: React.ElementType; count?: number }[] = [
@@ -117,15 +120,40 @@ export const Sidebar: React.FC<SidebarProps> = () => {
         </div>
       </div>
 
-      {/* Sidebar Footer */}
-      <div className="p-4 border-t border-slate-100 text-[11px] text-slate-400 space-y-2 text-center">
+      {/* Sidebar Footer & User Profile */}
+      <div className="p-3 border-t border-slate-100 space-y-2">
+        {currentUser && (
+          <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-200/60">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0">
+                {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div className="overflow-hidden text-left">
+                <p className="text-xs font-bold text-slate-800 truncate leading-tight">
+                  {currentUser.name}
+                </p>
+                <p className="text-[10px] text-slate-400 truncate leading-tight">
+                  {currentUser.email}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              title="Sair da conta"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         <button
           onClick={goToLanding}
           className="w-full text-xs font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-xl border border-teal-200/80 transition-colors cursor-pointer"
         >
           🌐 Ver Landing Page
         </button>
-        <div>ReservaZen © 2026</div>
+        <div className="text-center text-[10px] text-slate-400">ReservaZen © 2026</div>
       </div>
     </aside>
   );

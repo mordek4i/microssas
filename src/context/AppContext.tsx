@@ -8,6 +8,8 @@ import type {
   BookingStatus
 } from '../types';
 import { INITIAL_ESTABLISHMENTS, INITIAL_BOOKINGS, INITIAL_CLIENTS } from '../data/mockData';
+import { supabase } from '../lib/supabase';
+import type { User } from '@supabase/supabase-js';
 
 interface ToastMessage {
   id: string;
@@ -154,50 +156,217 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Auth & Flow Actions with Cakto integration
-  const startSignup = async (name: string, email?: string, password?: string) => {
-    const userEmail = email || `user_${Date.now()}@exemplo.com`;
-    const userPass = password || 'senha123';
+  // Helper to sync user profile and establishment with Supabase
+  const syncUserWithSupabase = async (user: User): Promise<UserProfile> => {
+    let profileName = user.user_metadata?.nome || user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário';
 
+    // 1. Fetch or create user record in profiles table
     try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email: userEmail, password: userPass })
-      });
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-      if (res.ok) {
-        const data = await res.json();
-        const profile: UserProfile = {
-          id: data.user.id,
-          name: data.user.name,
-          email: data.user.email,
-          subscription: {
-            status: data.subscription.status,
-            plan: data.subscription.plan,
-            amount: data.subscription.amount,
-            trial_ends_at: data.subscription.trial_ends_at,
-            expires_at: data.subscription.expires_at
-          }
-        };
-        setCurrentUser(profile);
-        localStorage.setItem('reservazen_user_session_v3', JSON.stringify(profile));
-        
-        // 7 days free trial -> Immediate access to onboarding!
-        setAppFlowState('ONBOARDING');
-        addToast('success', 'Conta criada com 7 dias grátis! 🎉', 'Aproveite todos os recursos do ReservaZen Pro.');
-        return;
+      if (profile?.nome) {
+        profileName = profile.nome;
       } else {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Erro ao criar conta');
+        // Insert initial profile record with user_id, nome and email
+        await supabase.from('profiles').insert([{
+          user_id: user.id,
+          nome: profileName,
+          email: user.email
+        }]);
       }
-    } catch (error) {
-      console.warn('Backend indisponível, usando fallback de sessão local:', error);
+    } catch (err) {
+      console.warn('Aviso ao sincronizar profiles no Supabase:', err);
+    }
+
+    // 2. Fetch business associated with this user using owner_id = user.id
+    try {
+      const { data: userBusinesses } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('owner_id', user.id);
+
+      if (userBusinesses && userBusinesses.length > 0) {
+        const b = userBusinesses[0];
+        const loadedEst: Establishment = {
+          id: b.id,
+          name: b.name || 'Meu Estabelecimento',
+          slug: (b.name || 'meu-estabelecimento')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '') || 'meu-estabelecimento',
+          businessType: 'RESTAURANT',
+          tagline: 'Horários organizados. Atendimento de excelência.',
+          description: b.description || 'Bem-vindo ao nosso estabelecimento.',
+          logoUrl: b.logo_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80',
+          coverUrl: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80',
+          phone: b.phone || '(11) 3333-4444',
+          whatsapp: b.phone || '(11) 99999-9999',
+          address: b.address || 'Rua Principal, 100',
+          cityState: 'São Paulo, SP',
+          instagram: '@reservazen',
+          primaryColor: '#16a34a',
+          businessHours: {
+            0: { active: true, open: '18:00', close: '23:00' },
+            1: { active: true, open: '18:00', close: '23:00' },
+            2: { active: true, open: '18:00', close: '23:00' },
+            3: { active: true, open: '18:00', close: '23:00' },
+            4: { active: true, open: '18:00', close: '23:00' },
+            5: { active: true, open: '18:00', close: '23:00' },
+            6: { active: true, open: '18:00', close: '23:00' },
+          },
+          capacitySettings: {
+            avgDurationMinutes: 90,
+            minAdvanceHours: 2,
+            toleranceMinutes: 15,
+            maxPaxPerBooking: 8,
+            autoConfirm: true,
+            blockedDates: []
+          },
+          resources: [
+            { id: `res-${b.id}-1`, name: 'Mesa 01', capacity: 4, active: true },
+            { id: `res-${b.id}-2`, name: 'Mesa 02', capacity: 4, active: true },
+            { id: `res-${b.id}-3`, name: 'Mesa 03', capacity: 4, active: true },
+            { id: `res-${b.id}-4`, name: 'Mesa 04', capacity: 4, active: true },
+          ],
+          services: [
+            { id: `srv-${b.id}-1`, name: 'Atendimento Padrão', durationMinutes: 90, active: true }
+          ],
+          cancellationPolicy: 'Cancelamento gratuito até 2 horas antes do horário reservado.'
+        };
+
+        setEstablishments(prev => {
+          const exists = prev.some(e => e.id === loadedEst.id);
+          return exists ? prev.map(e => e.id === loadedEst.id ? loadedEst : e) : [loadedEst, ...prev];
+        });
+        setCurrentEstablishmentId(loadedEst.id);
+        setAppFlowState('APP');
+      } else {
+        // User is authenticated but hasn't configured a business yet
+        setAppFlowState('ONBOARDING');
+      }
+    } catch (err) {
+      console.warn('Aviso ao buscar businesses no Supabase:', err);
+      setAppFlowState('ONBOARDING');
+    }
+
+    const trialEndsDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const userProfile: UserProfile = {
+      id: user.id,
+      name: profileName,
+      email: user.email || '',
+      subscription: {
+        status: 'active',
+        plan: 'trial_7_dias',
+        amount: 97.0,
+        trial_ends_at: trialEndsDate,
+        expires_at: trialEndsDate
+      }
+    };
+
+    setCurrentUser(userProfile);
+    localStorage.setItem('reservazen_user_session_v3', JSON.stringify(userProfile));
+    return userProfile;
+  };
+
+  // Persistent session initialization with Supabase
+  useEffect(() => {
+    let isMounted = true;
+
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user && isMounted) {
+          await syncUserWithSupabase(session.user);
+        } else if (!session?.user && isMounted) {
+          const savedSession = localStorage.getItem('reservazen_user_session_v3');
+          if (savedSession) {
+            const parsed = JSON.parse(savedSession);
+            if (parsed.id === 'usr_demo') {
+              setCurrentUser(parsed);
+              setAppFlowState('APP');
+            } else {
+              setCurrentUser(null);
+              localStorage.removeItem('reservazen_user_session_v3');
+              setAppFlowState('LANDING');
+            }
+          } else {
+            setAppFlowState('LANDING');
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao restaurar sessão do Supabase:', err);
+      }
+    };
+
+    initAuth();
+
+    // Real-time auth listener for session persistence across page refreshes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        await syncUserWithSupabase(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        localStorage.removeItem('reservazen_user_session_v3');
+        setAppFlowState('LANDING');
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Auth & Flow Actions with Supabase Auth
+  const startSignup = async (name: string, email?: string, password?: string) => {
+    if (!email || !password) throw new Error('E-mail e senha são obrigatórios.');
+
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+    const cleanName = name.trim();
+
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password: cleanPassword,
+      options: {
+        data: {
+          nome: cleanName,
+          name: cleanName
+        }
+      }
+    });
+
+    if (error) {
+      if (error.message.includes('User already registered') || error.message.includes('already registered')) {
+        throw new Error('Este e-mail já está cadastrado. Por favor, faça login.');
+      }
+      if (error.message.includes('Password should be at least')) {
+        throw new Error('A senha deve ter no mínimo 6 caracteres.');
+      }
+      throw new Error(error.message || 'Erro ao realizar cadastro.');
+    }
+
+    const user = data.user;
+    if (!user) throw new Error('Falha ao registrar usuário.');
+
+    // If session is already created (auto-confirmed)
+    if (data.session) {
+      await syncUserWithSupabase(user);
+      addToast('success', 'Conta criada com sucesso! 🎉', 'Vamos configurar seu negócio.');
+    } else {
       const trialEndsDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const profile: UserProfile = {
-        id: `usr_${Date.now()}`,
-        name,
-        email: userEmail,
+        id: user.id,
+        name: cleanName,
+        email: user.email || cleanEmail,
         subscription: {
           status: 'trialing',
           plan: 'trial_7_dias',
@@ -207,9 +376,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       };
       setCurrentUser(profile);
-      localStorage.setItem('reservazen_user_session_v3', JSON.stringify(profile));
       setAppFlowState('ONBOARDING');
-      addToast('success', 'Conta criada com 7 dias grátis! 🎉', 'Aproveite todos os recursos do ReservaZen Pro.');
+      addToast('success', 'Cadastro realizado! 🎉', 'Configure seu estabelecimento para começar.');
     }
   };
 
@@ -234,42 +402,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: password.trim()
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      const profile: UserProfile = {
-        id: data.user.id,
-        name: data.user.name,
-        email: data.user.email,
-        subscription: data.subscription
-      };
-      setCurrentUser(profile);
-      localStorage.setItem('reservazen_user_session_v3', JSON.stringify(profile));
-
-      const subStatus = profile.subscription?.status;
-      if (subStatus === 'active' || subStatus === 'trialing') {
-        setAppFlowState('APP');
-        setActiveView('dashboard');
-        addToast(
-          'success', 
-          `Bem-vindo de volta, ${profile.name}!`, 
-          subStatus === 'trialing' ? 'Período de teste de 7 dias ativo.' : 'Assinatura ativa e em dia.'
-        );
-      } else if (subStatus === 'pending_payment') {
-        setAppFlowState('CHECKOUT_PENDING');
-        addToast('info', 'Assinatura pendente', 'Seu período de teste expirou. Assine na Cakto para continuar.');
-      } else {
-        setAppFlowState('BLOCKED_SUBSCRIPTION');
+    if (error) {
+      if (error.message.includes('Invalid login credentials') || error.message.includes('invalid_grant')) {
+        throw new Error('E-mail ou senha incorretos.');
       }
-    } else {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Credenciais inválidas.');
+      if (error.message.includes('Email not confirmed') || error.message.includes('email_not_confirmed')) {
+        throw new Error('Por favor, confirme seu e-mail para acessar sua conta.');
+      }
+      throw new Error(error.message || 'Erro ao realizar login.');
     }
+
+    const user = data.user;
+    if (!user) throw new Error('Usuário não encontrado.');
+
+    await syncUserWithSupabase(user);
+    addToast('success', 'Login realizado com sucesso! 👋', 'Bem-vindo de volta.');
   };
 
   const onPaymentConfirmed = () => {
@@ -287,7 +439,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAppFlowState('ONBOARDING');
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Erro ao sair da conta:', err);
+    }
     setCurrentUser(null);
     localStorage.removeItem('reservazen_user_session_v3');
     setAppFlowState('LANDING');
@@ -318,8 +475,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const completeOnboarding = (newEst: Establishment) => {
-    // Generate personalized initial sample bookings for the new establishment
+  const completeOnboarding = async (newEst: Establishment) => {
+    // 1. Associate with Supabase businesses table using owner_id = user.id
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Ensure profile exists in profiles table
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!existingProfile) {
+          await supabase.from('profiles').insert([{
+            user_id: user.id,
+            nome: currentUser?.name || user.user_metadata?.nome || user.email?.split('@')[0] || 'Usuário',
+            email: user.email
+          }]);
+        }
+
+        // Check if business already exists for this owner
+        const { data: existingBus } = await supabase
+          .from('businesses')
+          .select('id')
+          .eq('owner_id', user.id)
+          .maybeSingle();
+
+        if (existingBus) {
+          await supabase
+            .from('businesses')
+            .update({
+              name: newEst.name,
+              phone: newEst.phone || newEst.whatsapp,
+              address: newEst.address,
+              description: newEst.description,
+              logo_url: newEst.logoUrl
+            })
+            .eq('id', existingBus.id);
+          newEst.id = existingBus.id;
+        } else {
+          const { data: insertedBus, error: busError } = await supabase
+            .from('businesses')
+            .insert([{
+              owner_id: user.id,
+              name: newEst.name,
+              phone: newEst.phone || newEst.whatsapp,
+              email: user.email,
+              address: newEst.address,
+              description: newEst.description,
+              logo_url: newEst.logoUrl
+            }])
+            .select()
+            .single();
+
+          if (busError) {
+            console.warn('Aviso ao associar business no Supabase:', busError);
+          } else if (insertedBus?.id) {
+            newEst.id = insertedBus.id;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao salvar business no Supabase:', err);
+    }
+
+    // 2. Add establishment to local state
+    setEstablishments(prev => {
+      const exists = prev.some(e => e.id === newEst.id);
+      return exists ? prev.map(e => e.id === newEst.id ? newEst : e) : [newEst, ...prev];
+    });
+    setCurrentEstablishmentId(newEst.id);
+
+    // 3. Generate personalized initial sample bookings for the new establishment
     const todayStr = new Date().toISOString().split('T')[0];
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const inTwoDays = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -410,8 +638,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ];
 
     setBookings(prev => [...personalizedBookings, ...prev]);
-    setEstablishments(prev => [newEst, ...prev]);
-    setCurrentEstablishmentId(newEst.id);
     setIsFirstAccess(true);
     setAppFlowState('APP');
     setActiveView('dashboard');
