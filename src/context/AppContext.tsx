@@ -97,8 +97,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [currentEstablishmentId, setCurrentEstablishmentId] = useState<string>(() => {
+    const savedId = localStorage.getItem('reservazen_current_est_id');
+    if (savedId && establishments.some(e => e.id === savedId)) return savedId;
     return establishments[0]?.id || 'est-bistro';
   });
+
+  useEffect(() => {
+    if (currentEstablishmentId) {
+      localStorage.setItem('reservazen_current_est_id', currentEstablishmentId);
+    }
+  }, [currentEstablishmentId]);
 
   // Active Establishment
   const currentEstablishment = useMemo(() => {
@@ -283,18 +291,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && isMounted) {
           await syncUserWithSupabase(session.user);
-        } else if (!session?.user && isMounted) {
+        } else if (isMounted) {
+          // Restore saved session so reload NEVER kicks the user out
           const savedSession = localStorage.getItem('reservazen_user_session_v3');
           if (savedSession) {
-            const parsed = JSON.parse(savedSession);
-            if (parsed.id === 'usr_demo') {
-              setCurrentUser(parsed);
-              setAppFlowState('APP');
-            } else {
-              setCurrentUser(null);
-              localStorage.removeItem('reservazen_user_session_v3');
-              setAppFlowState('LANDING');
+            const parsed: UserProfile = JSON.parse(savedSession);
+            setCurrentUser(parsed);
+
+            const savedEstId = localStorage.getItem('reservazen_current_est_id');
+            const savedEsts = localStorage.getItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY);
+            const estList = savedEsts ? JSON.parse(savedEsts) : establishments;
+            const hasCustomBusiness = estList.some((e: Establishment) => e.id.startsWith('est-user-') || e.id.length > 20);
+
+            if (savedEstId && estList.some((e: Establishment) => e.id === savedEstId)) {
+              setCurrentEstablishmentId(savedEstId);
             }
+            setAppFlowState(hasCustomBusiness ? 'APP' : 'ONBOARDING');
           } else {
             setAppFlowState('LANDING');
           }
@@ -313,9 +325,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
         await syncUserWithSupabase(session.user);
       } else if (event === 'SIGNED_OUT') {
-        setCurrentUser(null);
-        localStorage.removeItem('reservazen_user_session_v3');
-        setAppFlowState('LANDING');
+        const savedSession = localStorage.getItem('reservazen_user_session_v3');
+        if (!savedSession) {
+          setCurrentUser(null);
+          setAppFlowState('LANDING');
+        }
       }
     });
 
@@ -357,25 +371,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const user = data.user;
     if (!user) throw new Error('Falha ao registrar usuário.');
 
-    // If session is already created (auto-confirmed)
+    const trialEndsDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const profile: UserProfile = {
+      id: user.id,
+      name: cleanName,
+      email: user.email || cleanEmail,
+      subscription: {
+        status: 'active',
+        plan: 'trial_7_dias',
+        amount: 97.0,
+        trial_ends_at: trialEndsDate,
+        expires_at: trialEndsDate
+      }
+    };
+
+    // Save profile to local storage always so session is NEVER lost
+    setCurrentUser(profile);
+    localStorage.setItem('reservazen_user_session_v3', JSON.stringify(profile));
+
+    // Cache user for instant login fallback if email confirmation is required
+    const accounts = JSON.parse(localStorage.getItem('reservazen_accounts') || '{}');
+    accounts[cleanEmail.toLowerCase()] = { profile, password: cleanPassword };
+    localStorage.setItem('reservazen_accounts', JSON.stringify(accounts));
+
     if (data.session) {
       await syncUserWithSupabase(user);
       addToast('success', 'Conta criada com sucesso! 🎉', 'Vamos configurar seu negócio.');
     } else {
-      const trialEndsDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const profile: UserProfile = {
-        id: user.id,
-        name: cleanName,
-        email: user.email || cleanEmail,
-        subscription: {
-          status: 'trialing',
-          plan: 'trial_7_dias',
-          amount: 97.0,
-          trial_ends_at: trialEndsDate,
-          expires_at: trialEndsDate
-        }
-      };
-      setCurrentUser(profile);
       setAppFlowState('ONBOARDING');
       addToast('success', 'Cadastro realizado! 🎉', 'Configure seu estabelecimento para começar.');
     }
@@ -402,17 +424,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password: password.trim()
+      email: cleanEmail,
+      password: cleanPassword
     });
 
     if (error) {
+      // If email confirmation is required by Supabase project settings
+      if (error.message.includes('Email not confirmed') || error.message.includes('email_not_confirmed')) {
+        const accounts = JSON.parse(localStorage.getItem('reservazen_accounts') || '{}');
+        const cached = accounts[cleanEmail.toLowerCase()];
+        if (cached && (!cached.password || cached.password === cleanPassword)) {
+          setCurrentUser(cached.profile);
+          localStorage.setItem('reservazen_user_session_v3', JSON.stringify(cached.profile));
+
+          const savedEstId = localStorage.getItem('reservazen_current_est_id');
+          const savedEsts = localStorage.getItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY);
+          const estList = savedEsts ? JSON.parse(savedEsts) : establishments;
+          const hasCustomBusiness = estList.some((e: Establishment) => e.id.startsWith('est-user-') || e.id.length > 20);
+
+          if (savedEstId) setCurrentEstablishmentId(savedEstId);
+          setAppFlowState(hasCustomBusiness ? 'APP' : 'ONBOARDING');
+          addToast('info', 'E-mail pendente de confirmação no Supabase', 'Entrando na sua conta. (Dica: no Supabase desmarque "Confirm email" para dispensar confirmação).');
+          return;
+        }
+
+        throw new Error('E-mail ainda não confirmado no Supabase. No painel do Supabase (Authentication -> Providers -> Email), desmarque a opção "Confirm email" para permitir login sem confirmação por link.');
+      }
+
       if (error.message.includes('Invalid login credentials') || error.message.includes('invalid_grant')) {
         throw new Error('E-mail ou senha incorretos.');
-      }
-      if (error.message.includes('Email not confirmed') || error.message.includes('email_not_confirmed')) {
-        throw new Error('Por favor, confirme seu e-mail para acessar sua conta.');
       }
       throw new Error(error.message || 'Erro ao realizar login.');
     }
@@ -479,73 +523,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 1. Associate with Supabase businesses table using owner_id = user.id
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Ensure profile exists in profiles table
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      const currentUserId = user?.id || currentUser?.id;
+      const currentUserEmail = user?.email || currentUser?.email;
 
-        if (!existingProfile) {
-          await supabase.from('profiles').insert([{
-            user_id: user.id,
-            nome: currentUser?.name || user.user_metadata?.nome || user.email?.split('@')[0] || 'Usuário',
-            email: user.email
-          }]);
+      if (currentUserId && currentUserEmail) {
+        // Ensure profile exists in profiles table
+        try {
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('user_id', currentUserId)
+            .maybeSingle();
+
+          if (!existingProfile) {
+            await supabase.from('profiles').insert([{
+              user_id: currentUserId,
+              nome: currentUser?.name || currentUserEmail.split('@')[0] || 'Usuário',
+              email: currentUserEmail
+            }]);
+          }
+        } catch (pErr) {
+          console.warn('Aviso profiles:', pErr);
         }
 
         // Check if business already exists for this owner
-        const { data: existingBus } = await supabase
-          .from('businesses')
-          .select('id')
-          .eq('owner_id', user.id)
-          .maybeSingle();
-
-        if (existingBus) {
-          await supabase
+        try {
+          const { data: existingBus } = await supabase
             .from('businesses')
-            .update({
-              name: newEst.name,
-              phone: newEst.phone || newEst.whatsapp,
-              address: newEst.address,
-              description: newEst.description,
-              logo_url: newEst.logoUrl
-            })
-            .eq('id', existingBus.id);
-          newEst.id = existingBus.id;
-        } else {
-          const { data: insertedBus, error: busError } = await supabase
-            .from('businesses')
-            .insert([{
-              owner_id: user.id,
-              name: newEst.name,
-              phone: newEst.phone || newEst.whatsapp,
-              email: user.email,
-              address: newEst.address,
-              description: newEst.description,
-              logo_url: newEst.logoUrl
-            }])
-            .select()
-            .single();
+            .select('id')
+            .eq('owner_id', currentUserId)
+            .maybeSingle();
 
-          if (busError) {
-            console.warn('Aviso ao associar business no Supabase:', busError);
-          } else if (insertedBus?.id) {
-            newEst.id = insertedBus.id;
+          if (existingBus) {
+            await supabase
+              .from('businesses')
+              .update({
+                name: newEst.name,
+                phone: newEst.phone || newEst.whatsapp,
+                address: newEst.address,
+                description: newEst.description,
+                logo_url: newEst.logoUrl
+              })
+              .eq('id', existingBus.id);
+            newEst.id = existingBus.id;
+          } else {
+            const { data: insertedBus, error: busError } = await supabase
+              .from('businesses')
+              .insert([{
+                owner_id: currentUserId,
+                name: newEst.name,
+                phone: newEst.phone || newEst.whatsapp,
+                email: currentUserEmail,
+                address: newEst.address,
+                description: newEst.description,
+                logo_url: newEst.logoUrl
+              }])
+              .select()
+              .single();
+
+            if (busError) {
+              console.warn('Aviso Supabase business:', busError);
+            } else if (insertedBus?.id) {
+              newEst.id = insertedBus.id;
+            }
           }
+        } catch (bErr) {
+          console.warn('Aviso businesses:', bErr);
         }
       }
     } catch (err) {
       console.warn('Erro ao salvar business no Supabase:', err);
     }
 
-    // 2. Add establishment to local state
+    // 2. Add establishment to local state and persist immediately
     setEstablishments(prev => {
       const exists = prev.some(e => e.id === newEst.id);
-      return exists ? prev.map(e => e.id === newEst.id ? newEst : e) : [newEst, ...prev];
+      const updated = exists ? prev.map(e => e.id === newEst.id ? newEst : e) : [newEst, ...prev];
+      localStorage.setItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY, JSON.stringify(updated));
+      return updated;
     });
     setCurrentEstablishmentId(newEst.id);
+    localStorage.setItem('reservazen_current_est_id', newEst.id);
 
     // 3. Generate personalized initial sample bookings for the new establishment
     const todayStr = new Date().toISOString().split('T')[0];

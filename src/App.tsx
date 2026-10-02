@@ -73,12 +73,12 @@ const AppContent: React.FC = () => {
             initialMode={authMode}
             onBackToHome={() => setIsAuthModalOpen(false)}
             onSuccessSignup={async (name, email, password) => {
-              setIsAuthModalOpen(false);
               await startSignup(name, email, password);
+              setIsAuthModalOpen(false);
             }}
             onSuccessLogin={async (email, password) => {
-              setIsAuthModalOpen(false);
               await startLogin(email, password);
+              setIsAuthModalOpen(false);
             }}
           />
           <NotificationToastContainer />
