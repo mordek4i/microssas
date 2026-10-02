@@ -8,7 +8,6 @@ import {
   Users, 
   Store, 
   Settings, 
-  ChevronDown,
   LogOut
 } from 'lucide-react';
 
@@ -20,9 +19,7 @@ export const Sidebar: React.FC<SidebarProps> = () => {
   const { 
     activeView, 
     setActiveView, 
-    establishments, 
     currentEstablishment, 
-    switchEstablishment,
     filteredBookings,
     goToLanding,
     currentUser,
@@ -50,36 +47,27 @@ export const Sidebar: React.FC<SidebarProps> = () => {
           />
         </div>
 
-        {/* Establishment Switcher Box */}
-        <div className="bg-slate-50/80 rounded-2xl p-3 border border-slate-200/80 space-y-1 hover:border-slate-300 transition-colors">
-          <div className="flex items-center justify-between">
+        {/* Establishment Info Card (Single establishment per user) */}
+        {currentEstablishment && (
+          <div className="bg-slate-50/90 rounded-2xl p-3 border border-slate-200/80">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-700 shrink-0">
-                <Store className="w-4 h-4 text-slate-700" />
+              <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-200/80 flex items-center justify-center text-teal-700 shrink-0">
+                <Store className="w-4 h-4" />
               </div>
-              <div className="min-w-0">
-                <select
-                  value={currentEstablishment.id}
-                  onChange={(e) => switchEstablishment(e.target.value)}
-                  className="w-full bg-transparent text-slate-900 text-xs font-bold focus:outline-none appearance-none cursor-pointer pr-4 truncate"
-                >
-                  {establishments.map(est => (
-                    <option key={est.id} value={est.id}>
-                      {est.name}
-                    </option>
-                  ))}
-                </select>
-                <span className="block text-[11px] text-slate-500 font-medium truncate">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-slate-900 truncate" title={currentEstablishment.name}>
+                  {currentEstablishment.name}
+                </p>
+                <p className="text-[11px] text-slate-500 font-medium truncate">
                   {currentEstablishment.businessType === 'RESTAURANT' ? 'Restaurante' :
                    currentEstablishment.businessType === 'SALON' ? 'Salão / Barbearia' :
                    currentEstablishment.businessType === 'CLINIC' ? 'Spa / Clínica' :
-                   currentEstablishment.businessType === 'STUDIO' ? 'Studio' : 'Eventos'}
-                </span>
+                   currentEstablishment.businessType === 'STUDIO' ? 'Studio' : 'Espaço de Eventos'}
+                </p>
               </div>
             </div>
-            <ChevronDown className="w-4 h-4 text-slate-400 shrink-0 pointer-events-none" />
           </div>
-        </div>
+        )}
 
         {/* Navigation Section */}
         <div className="pt-2">

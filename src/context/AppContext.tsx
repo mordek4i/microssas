@@ -77,7 +77,6 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_ESTABLISHMENTS_KEY = 'reservazen_establishments_v2';
 const LOCAL_STORAGE_BOOKINGS_KEY = 'reservazen_bookings_v2';
 const LOCAL_STORAGE_CLIENTS_KEY = 'reservazen_clients_v2';
 
@@ -90,15 +89,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [isFirstAccess, setIsFirstAccess] = useState<boolean>(false);
 
-  // Establishments state
+  // Establishments state - strictly user scoped (one establishment per user)
   const [establishments, setEstablishments] = useState<Establishment[]>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_ESTABLISHMENTS;
+    // Purge legacy shared establishments storage
+    try {
+      localStorage.removeItem('reservazen_establishments_v2');
+      localStorage.removeItem('reservazen_establishments_v3');
+      localStorage.removeItem('reservazen_establishments');
+    } catch {}
+
+    const savedSession = localStorage.getItem('reservazen_user_session_v3');
+    if (savedSession) {
+      try {
+        const user: UserProfile = JSON.parse(savedSession);
+        const userEst = localStorage.getItem(`reservazen_est_${user.id}`);
+        if (userEst) {
+          return [JSON.parse(userEst)];
+        }
+      } catch {}
+    }
+    return [INITIAL_ESTABLISHMENTS[0]];
   });
 
   const [currentEstablishmentId, setCurrentEstablishmentId] = useState<string>(() => {
-    const savedId = localStorage.getItem('reservazen_current_est_id');
-    if (savedId && establishments.some(e => e.id === savedId)) return savedId;
     return establishments[0]?.id || 'est-bistro';
   });
 
@@ -108,10 +121,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentEstablishmentId]);
 
-  // Active Establishment
+  // Active Establishment (each user has only one)
   const currentEstablishment = useMemo(() => {
-    return establishments.find(e => e.id === currentEstablishmentId) || establishments[0];
-  }, [establishments, currentEstablishmentId]);
+    return establishments[0] || INITIAL_ESTABLISHMENTS[0];
+  }, [establishments]);
 
   // Bookings state
   const [bookings, setBookings] = useState<Booking[]>(() => {
@@ -139,11 +152,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Public booking page simulator
   const [publicSlug, setPublicSlug] = useState<string | undefined>(undefined);
 
-  // Sync state to local storage
-  useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY, JSON.stringify(establishments));
-  }, [establishments]);
-
+  // Sync bookings and clients to local storage
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_BOOKINGS_KEY, JSON.stringify(bookings));
   }, [bookings]);
@@ -248,18 +257,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           cancellationPolicy: 'Cancelamento gratuito até 2 horas antes do horário reservado.'
         };
 
-        setEstablishments(prev => {
-          const exists = prev.some(e => e.id === loadedEst.id);
-          return exists ? prev.map(e => e.id === loadedEst.id ? loadedEst : e) : [loadedEst, ...prev];
-        });
-        setCurrentEstablishmentId(loadedEst.id);
+        // Merge user-scoped local details if present
+        const userSavedEst = localStorage.getItem(`reservazen_est_${user.id}`);
+        let finalEst = loadedEst;
+        if (userSavedEst) {
+          try {
+            const parsed = JSON.parse(userSavedEst);
+            finalEst = { ...loadedEst, ...parsed, id: b.id };
+          } catch {}
+        }
+
+        // STRICTLY 1 ESTABLISHMENT PER USER
+        localStorage.setItem(`reservazen_est_${user.id}`, JSON.stringify(finalEst));
+        setEstablishments([finalEst]);
+        setCurrentEstablishmentId(finalEst.id);
         setAppFlowState('APP');
       } else {
         // User is authenticated but hasn't configured a business yet
+        setEstablishments([]);
         setAppFlowState('ONBOARDING');
       }
     } catch (err) {
       console.warn('Aviso ao buscar businesses no Supabase:', err);
+      setEstablishments([]);
       setAppFlowState('ONBOARDING');
     }
 
@@ -288,6 +308,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const initAuth = async () => {
       try {
+        // Purge old contaminated shared storage keys
+        localStorage.removeItem('reservazen_establishments_v2');
+        localStorage.removeItem('reservazen_establishments_v3');
+        localStorage.removeItem('reservazen_establishments');
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && isMounted) {
           await syncUserWithSupabase(session.user);
@@ -298,15 +323,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const parsed: UserProfile = JSON.parse(savedSession);
             setCurrentUser(parsed);
 
-            const savedEstId = localStorage.getItem('reservazen_current_est_id');
-            const savedEsts = localStorage.getItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY);
-            const estList = savedEsts ? JSON.parse(savedEsts) : establishments;
-            const hasCustomBusiness = estList.some((e: Establishment) => e.id.startsWith('est-user-') || e.id.length > 20);
-
-            if (savedEstId && estList.some((e: Establishment) => e.id === savedEstId)) {
-              setCurrentEstablishmentId(savedEstId);
+            const userSavedEst = localStorage.getItem(`reservazen_est_${parsed.id}`);
+            if (userSavedEst) {
+              const singleEst: Establishment = JSON.parse(userSavedEst);
+              setEstablishments([singleEst]);
+              setCurrentEstablishmentId(singleEst.id);
+              setAppFlowState('APP');
+            } else {
+              setEstablishments([]);
+              setAppFlowState('ONBOARDING');
             }
-            setAppFlowState(hasCustomBusiness ? 'APP' : 'ONBOARDING');
           } else {
             setAppFlowState('LANDING');
           }
@@ -441,13 +467,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setCurrentUser(cached.profile);
           localStorage.setItem('reservazen_user_session_v3', JSON.stringify(cached.profile));
 
-          const savedEstId = localStorage.getItem('reservazen_current_est_id');
-          const savedEsts = localStorage.getItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY);
-          const estList = savedEsts ? JSON.parse(savedEsts) : establishments;
-          const hasCustomBusiness = estList.some((e: Establishment) => e.id.startsWith('est-user-') || e.id.length > 20);
-
-          if (savedEstId) setCurrentEstablishmentId(savedEstId);
-          setAppFlowState(hasCustomBusiness ? 'APP' : 'ONBOARDING');
+          const userSavedEst = localStorage.getItem(`reservazen_est_${cached.profile.id}`);
+          if (userSavedEst) {
+            const singleEst: Establishment = JSON.parse(userSavedEst);
+            setEstablishments([singleEst]);
+            setCurrentEstablishmentId(singleEst.id);
+            setAppFlowState('APP');
+          } else {
+            setEstablishments([]);
+            setAppFlowState('ONBOARDING');
+          }
           addToast('info', 'E-mail pendente de confirmação no Supabase', 'Entrando na sua conta. (Dica: no Supabase desmarque "Confirm email" para dispensar confirmação).');
           return;
         }
@@ -491,6 +520,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     setCurrentUser(null);
     localStorage.removeItem('reservazen_user_session_v3');
+    localStorage.removeItem('reservazen_current_est_id');
+    setEstablishments([INITIAL_ESTABLISHMENTS[0]]);
+    setCurrentEstablishmentId(INITIAL_ESTABLISHMENTS[0]?.id || 'est-bistro');
     setAppFlowState('LANDING');
     addToast('info', 'Você saiu da sua conta.', 'Até breve!');
   };
@@ -520,11 +552,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const completeOnboarding = async (newEst: Establishment) => {
+    let currentUserId = currentUser?.id;
+    let currentUserEmail = currentUser?.email;
+
     // 1. Associate with Supabase businesses table using owner_id = user.id
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const currentUserId = user?.id || currentUser?.id;
-      const currentUserEmail = user?.email || currentUser?.email;
+      if (user?.id) currentUserId = user.id;
+      if (user?.email) currentUserEmail = user.email;
 
       if (currentUserId && currentUserEmail) {
         // Ensure profile exists in profiles table
@@ -595,14 +630,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Erro ao salvar business no Supabase:', err);
     }
 
-    // 2. Add establishment to local state and persist immediately
-    setEstablishments(prev => {
-      const exists = prev.some(e => e.id === newEst.id);
-      const updated = exists ? prev.map(e => e.id === newEst.id ? newEst : e) : [newEst, ...prev];
-      localStorage.setItem(LOCAL_STORAGE_ESTABLISHMENTS_KEY, JSON.stringify(updated));
-      return updated;
-    });
+    // 2. Set EXACTLY ONE establishment for this user and save scoped to user ID
+    setEstablishments([newEst]);
     setCurrentEstablishmentId(newEst.id);
+    if (currentUserId) {
+      localStorage.setItem(`reservazen_est_${currentUserId}`, JSON.stringify(newEst));
+    }
     localStorage.setItem('reservazen_current_est_id', newEst.id);
 
     // 3. Generate personalized initial sample bookings for the new establishment
@@ -718,8 +751,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const updateEstablishment = (updated: Establishment) => {
-    setEstablishments(prev => prev.map(e => e.id === updated.id ? updated : e));
+  const updateEstablishment = async (updated: Establishment) => {
+    setEstablishments([updated]);
+    const uid = currentUser?.id;
+    if (uid) {
+      localStorage.setItem(`reservazen_est_${uid}`, JSON.stringify(updated));
+    }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const currentUid = user?.id || uid;
+      if (currentUid) {
+        await supabase
+          .from('businesses')
+          .update({
+            name: updated.name,
+            phone: updated.phone || updated.whatsapp,
+            address: updated.address,
+            description: updated.description,
+            logo_url: updated.logoUrl
+          })
+          .eq('owner_id', currentUid);
+      }
+    } catch (err) {
+      console.warn('Aviso ao sincronizar alteração de business com Supabase:', err);
+    }
     addToast('success', 'Configurações salvas com sucesso!', 'As alterações do estabelecimento foram atualizadas.');
   };
 
