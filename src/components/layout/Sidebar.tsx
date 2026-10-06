@@ -60,9 +60,14 @@ export const Sidebar: React.FC<SidebarProps> = () => {
                 </p>
                 <p className="text-[11px] text-slate-500 font-medium truncate">
                   {currentEstablishment.businessType === 'RESTAURANT' ? 'Restaurante' :
-                   currentEstablishment.businessType === 'SALON' ? 'Salão / Barbearia' :
-                   currentEstablishment.businessType === 'CLINIC' ? 'Spa / Clínica' :
-                   currentEstablishment.businessType === 'STUDIO' ? 'Studio' : 'Espaço de Eventos'}
+                   currentEstablishment.businessType === 'BAR' ? 'Bar / Pub' :
+                   currentEstablishment.businessType === 'CAFE' ? 'Cafeteria' :
+                   currentEstablishment.businessType === 'BARBERSHOP' ? 'Barbearia' :
+                   currentEstablishment.businessType === 'SALON' ? 'Salão de Beleza' :
+                   currentEstablishment.businessType === 'CLINIC' ? 'Clínica' :
+                   currentEstablishment.businessType === 'SPA' ? 'Spa & Terapias' :
+                   currentEstablishment.businessType === 'STUDIO' ? 'Studio' :
+                   currentEstablishment.businessType === 'EVENTS' ? 'Espaço de Eventos' : 'Serviços'}
                 </p>
               </div>
             </div>

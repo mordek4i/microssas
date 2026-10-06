@@ -18,9 +18,11 @@ import { AuthScreen } from './components/auth/AuthScreen';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { CheckoutPendingScreen } from './components/subscription/CheckoutPendingScreen';
 import { SubscriptionBlockedScreen } from './components/subscription/SubscriptionBlockedScreen';
+import { Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { 
+    isInitializingAuth,
     activeView, 
     publicSlug, 
     setPublicSlug, 
@@ -45,12 +47,22 @@ const AppContent: React.FC = () => {
   const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
   const [detailClientId, setDetailClientId] = useState<string | null>(null);
 
-  // Check URL parameters for direct public booking slug (e.g. ?slug=restaurante-zen)
+  // Check URL parameters and path for direct public booking slug (e.g. /reservar/nome-do-negocio or ?slug=...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const urlSlug = params.get('slug');
-    if (urlSlug) {
-      setPublicSlug(urlSlug);
+    const querySlug = params.get('slug');
+    if (querySlug) {
+      setPublicSlug(querySlug);
+      return;
+    }
+
+    const pathname = window.location.pathname;
+    if (pathname.startsWith('/reservar/')) {
+      const pSlug = pathname.replace('/reservar/', '').split('/')[0].trim();
+      if (pSlug) setPublicSlug(pSlug);
+    } else if (pathname.startsWith('/r/')) {
+      const pSlug = pathname.replace('/r/', '').split('/')[0].trim();
+      if (pSlug) setPublicSlug(pSlug);
     }
   }, [setPublicSlug]);
 
@@ -64,7 +76,26 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // 2. LANDING PAGE & AUTH STATE
+  // 2. LOADING STATE DURING AUTH INITIALIZATION
+  if (isInitializingAuth) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex flex-col items-center justify-center p-4 selection:bg-[#bde870]">
+        <div className="flex flex-col items-center space-y-4 max-w-sm text-center">
+          <img
+            src="/reservazen-logo-tight.png"
+            alt="ReservaZen"
+            className="h-10 sm:h-12 w-auto object-contain"
+          />
+          <div className="flex items-center gap-2.5 text-slate-500 text-sm font-medium pt-2">
+            <Loader2 className="w-5 h-5 animate-spin text-[#16a34a]" />
+            <span>Carregando sua sessão...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. LANDING PAGE & AUTH STATE
   if (appFlowState === 'LANDING') {
     if (isAuthModalOpen) {
       return (
@@ -139,7 +170,7 @@ const AppContent: React.FC = () => {
       <>
         <OnboardingWizard
           userName={currentUser?.name || 'Proprietário'}
-          onComplete={(newEst) => completeOnboarding(newEst)}
+          onComplete={async (newEst) => await completeOnboarding(newEst)}
         />
         <NotificationToastContainer />
       </>

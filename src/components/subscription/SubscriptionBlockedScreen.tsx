@@ -16,6 +16,17 @@ export const SubscriptionBlockedScreen: React.FC<SubscriptionBlockedScreenProps>
 
   const getStatusDetails = () => {
     switch (status) {
+      case 'expired':
+        return {
+          badge: 'Período de Teste Encerrado',
+          badgeColor: 'bg-amber-100 text-amber-900 border-amber-200',
+          title: 'Seus 7 dias de teste grátis terminaram',
+          message: 'Esperamos que você tenha aproveitado o ReservaZen! Para continuar gerenciando seus agendamentos, clientes e recebendo reservas online sem interrupções, assine o plano oficial.',
+          icon: RotateCcw,
+          iconColor: 'text-amber-600 bg-amber-50 border-amber-200',
+          canReactivate: true,
+          ctaText: 'Assinar Plano ReservaZen'
+        };
       case 'canceled':
         return {
           badge: 'Assinatura Cancelada',
@@ -113,7 +124,9 @@ export const SubscriptionBlockedScreen: React.FC<SubscriptionBlockedScreenProps>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Status da Conta:</span>
-              <span className="font-black uppercase tracking-wider text-rose-600">{status}</span>
+              <span className="font-black uppercase tracking-wider text-rose-600">
+                {status === 'expired' ? 'TESTE EXPIRADO' : status}
+              </span>
             </div>
           </div>
 

@@ -14,10 +14,15 @@ export const SettingsView: React.FC = () => {
   const { currentUser, logout } = useApp();
 
   const sub = currentUser?.subscription;
-  const isTrial = sub?.status === 'trialing';
+  // If local cache contains legacy unverified trial_7_dias + active without Cakto payment, normalize to trialing
+  const isLegacyTrialCache = sub?.plan === 'trial_7_dias' && sub?.status === 'active' && !sub?.cakto_order_id && !sub?.cakto_subscription_id && !sub?.id;
+  const currentStatus = isLegacyTrialCache ? 'trialing' : sub?.status;
+
+  const isTrial = currentStatus === 'trialing';
   let trialDaysLeft = 7;
-  if (isTrial && sub?.trial_ends_at) {
-    const msLeft = new Date(sub.trial_ends_at).getTime() - Date.now();
+  const trialExpiration = sub?.expires_at || sub?.trial_ends_at;
+  if (isTrial && trialExpiration) {
+    const msLeft = new Date(trialExpiration).getTime() - Date.now();
     trialDaysLeft = Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
   }
 
@@ -106,16 +111,26 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <span className={`px-3 py-1 rounded-full text-xs font-black inline-flex items-center gap-1.5 border ${
-            sub?.status === 'active' 
+            currentStatus === 'active' 
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
-              : 'bg-amber-50 text-amber-800 border-amber-200'
+              : isTrial
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : 'bg-rose-50 text-rose-800 border-rose-200'
           }`}>
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>
-              {sub?.status === 'active' 
+              {currentStatus === 'active' 
                 ? 'Plano Ativo' 
                 : isTrial 
-                ? `Teste Grátis (${trialDaysLeft} dias restantes)` 
+                ? `Período de Teste (${trialDaysLeft} ${trialDaysLeft === 1 ? 'dia restante' : 'dias restantes'})` 
+                : currentStatus === 'expired'
+                ? 'Teste Expirado (Acesso Bloqueado)'
+                : currentStatus === 'canceled'
+                ? 'Assinatura Cancelada (Acesso Bloqueado)'
+                : currentStatus === 'refunded'
+                ? 'Acesso Reembolsado (Bloqueado)'
+                : currentStatus === 'chargeback'
+                ? 'Disputa de Pagamento (Bloqueado)'
                 : 'Assinatura Pendente'}
             </span>
           </span>
@@ -144,8 +159,14 @@ export const SettingsView: React.FC = () => {
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
               Acesso
             </span>
-            <span className="text-xs font-bold text-emerald-700 block truncate">
-              {isTrial ? 'Período de Testes Liberado' : 'Acesso Ilimitado'}
+            <span className={`text-xs font-bold block truncate ${
+              currentStatus === 'active' ? 'text-emerald-700' : isTrial ? 'text-amber-700' : 'text-rose-700'
+            }`}>
+              {currentStatus === 'active' 
+                ? 'Acesso Ilimitado' 
+                : isTrial 
+                ? `Período de Teste (${trialDaysLeft}d)` 
+                : 'Acesso Bloqueado'}
             </span>
           </div>
         </div>
@@ -159,7 +180,9 @@ export const SettingsView: React.FC = () => {
                   Você está no período de avaliação gratuito de 7 dias
                 </p>
                 <p className="text-[11px] text-amber-800">
-                  Aproveite todos os recursos do ReservaZen. Ao fim do teste, assine para manter o acesso contínuo.
+                  {trialDaysLeft > 0
+                    ? `Restam ${trialDaysLeft} ${trialDaysLeft === 1 ? 'dia' : 'dias'} de teste. Ao fim do período, assine para manter o acesso contínuo.`
+                    : 'Seu período de teste encerra hoje. Assine para continuar utilizando o ReservaZen sem interrupções.'}
                 </p>
               </div>
             </div>

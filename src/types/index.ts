@@ -1,9 +1,14 @@
 export type BusinessType = 
-  | 'RESTAURANT'  // Restaurantes, Bares, Cafeterias (Mesas, Pessoas)
-  | 'SALON'       // Salões de Beleza, Barbearias (Profissionais, Serviços)
-  | 'CLINIC'      // Clínicas de Estética, Spas (Procedimentos, Salas)
-  | 'STUDIO'      // Studios de Yoga, Pilates, Academias (Aulas, Turmas, Professores)
-  | 'EVENTS';     // Espaços de Eventos, Salões de Festa (Espaço, Convidados)
+  | 'RESTAURANT'  // Restaurantes (Mesas, Salão)
+  | 'BAR'         // Bares, Pubs (Mesas, Balcão)
+  | 'CAFE'        // Cafeterias, Bistrôs (Mesas)
+  | 'SALON'       // Salões de Beleza (Cabeleireiros, Manicures, Estilistas)
+  | 'BARBERSHOP'  // Barbearias (Barbeiros, Cortes, Barba)
+  | 'CLINIC'      // Clínicas Médicas / Estética (Consultórios, Especialistas)
+  | 'SPA'         // Spas e Terapias (Salas de Massagem, Terapeutas)
+  | 'STUDIO'      // Studios de Yoga, Pilates, Fitness (Aulas, Turmas, Professores)
+  | 'EVENTS'      // Espaços de Eventos, Salões de Festa (Espaços, Lotação Máxima)
+  | 'OTHER';      // Outros Serviços com Agendamento
 
 export type BookingStatus = 
   | 'PENDING'     // Pendente
@@ -23,6 +28,8 @@ export interface BusinessHours {
   breakEnd?: string;   // e.g. "18:00"
 }
 
+export type ResourceType = 'TABLE' | 'ROOM' | 'SPACE' | 'EQUIPMENT' | 'GENERAL';
+
 export interface ResourceItem {
   id: string;
   name: string;          // e.g., "Mesa 01", "Lucas Barbeiro", "Sala Estética A", "Yoga Mat 05", "Salão Garden"
@@ -30,7 +37,18 @@ export interface ResourceItem {
   description?: string;
   active: boolean;
   type?: string;         // e.g. "Varanda", "Interno", "Profissional", "Sala VIP"
+  resourceType?: ResourceType;
   image?: string;
+}
+
+export interface ProfessionalItem {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  photoUrl?: string;
+  specialty?: string;
+  active: boolean;
 }
 
 export interface ServiceItem {
@@ -71,8 +89,10 @@ export interface Establishment {
   businessHours: Record<number, BusinessHours>; // Keyed by DayOfWeek (0-6)
   capacitySettings: EstablishmentCapacitySettings;
   resources: ResourceItem[];
+  professionals?: ProfessionalItem[];
   services: ServiceItem[];
   cancellationPolicy: string;
+  categorySettings?: Record<string, any>;
 }
 
 export interface Booking {
@@ -129,7 +149,8 @@ export type SubscriptionStatus =
   | 'active'
   | 'canceled'
   | 'refunded'
-  | 'chargeback';
+  | 'chargeback'
+  | 'expired';
 
 export interface UserSubscription {
   id?: string;
@@ -141,6 +162,7 @@ export interface UserSubscription {
   trial_ends_at?: string | null;
   cakto_order_id?: string | null;
   cakto_product_id?: string | null;
+  cakto_subscription_id?: string | null;
 }
 
 export interface UserProfile {

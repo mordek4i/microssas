@@ -1,6 +1,6 @@
 import React from 'react';
 import type { BusinessType } from '../../types';
-import { Utensils, Scissors, Sparkles, Activity, Building2 } from 'lucide-react';
+import { Utensils, Wine, Coffee, Scissors, Sparkles, Stethoscope, Activity, Building2, Briefcase } from 'lucide-react';
 
 interface BusinessTypeBadgeProps {
   type: BusinessType;
@@ -8,20 +8,40 @@ interface BusinessTypeBadgeProps {
 }
 
 export const BusinessTypeBadge: React.FC<BusinessTypeBadgeProps> = ({ type, showIcon = true }) => {
-  const config = {
+  const configMap: Record<BusinessType, { label: string; bg: string; icon: React.FC<{ className?: string }> }> = {
     RESTAURANT: {
-      label: 'Restaurante / Bar',
+      label: 'Restaurante',
       bg: 'bg-emerald-50 border-emerald-200 text-emerald-700',
       icon: Utensils
     },
+    BAR: {
+      label: 'Bar / Pub',
+      bg: 'bg-amber-50 border-amber-200 text-amber-700',
+      icon: Wine
+    },
+    CAFE: {
+      label: 'Cafeteria',
+      bg: 'bg-orange-50 border-orange-200 text-orange-700',
+      icon: Coffee
+    },
     SALON: {
-      label: 'Salão / Barbearia',
+      label: 'Salão de Beleza',
+      bg: 'bg-rose-50 border-rose-200 text-rose-700',
+      icon: Sparkles
+    },
+    BARBERSHOP: {
+      label: 'Barbearia',
       bg: 'bg-sky-50 border-sky-200 text-sky-700',
       icon: Scissors
     },
     CLINIC: {
-      label: 'Clínica / Spa',
-      bg: 'bg-pink-50 border-pink-200 text-pink-700',
+      label: 'Clínica',
+      bg: 'bg-teal-50 border-teal-200 text-teal-700',
+      icon: Stethoscope
+    },
+    SPA: {
+      label: 'Spa & Terapias',
+      bg: 'bg-cyan-50 border-cyan-200 text-cyan-700',
       icon: Sparkles
     },
     STUDIO: {
@@ -31,11 +51,17 @@ export const BusinessTypeBadge: React.FC<BusinessTypeBadgeProps> = ({ type, show
     },
     EVENTS: {
       label: 'Espaço de Eventos',
-      bg: 'bg-amber-50 border-amber-200 text-amber-700',
+      bg: 'bg-indigo-50 border-indigo-200 text-indigo-700',
       icon: Building2
+    },
+    OTHER: {
+      label: 'Outros Serviços',
+      bg: 'bg-slate-50 border-slate-200 text-slate-700',
+      icon: Briefcase
     }
-  }[type];
+  };
 
+  const config = configMap[type] || configMap.OTHER;
   const IconComponent = config.icon;
 
   return (
@@ -45,3 +71,4 @@ export const BusinessTypeBadge: React.FC<BusinessTypeBadgeProps> = ({ type, show
     </span>
   );
 };
+

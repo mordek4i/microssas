@@ -14,16 +14,6 @@ export const ProfileConfig: React.FC = () => {
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleCapacityChange = (field: string, value: any) => {
-    setForm(prev => ({
-      ...prev,
-      capacitySettings: {
-        ...prev.capacitySettings,
-        [field]: value
-      }
-    }));
-  };
-
   const handleHourChange = (dayIndex: number, field: string, value: any) => {
     setForm(prev => ({
       ...prev,
@@ -70,11 +60,16 @@ export const ProfileConfig: React.FC = () => {
               onChange={(e) => handleChange('businessType', e.target.value as BusinessType)}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-medium"
             >
-              <option value="RESTAURANT">Restaurante / Bar / Cafeteria</option>
-              <option value="SALON">Salão de Beleza / Barbearia</option>
-              <option value="CLINIC">Clínica de Estética / Spa</option>
+              <option value="RESTAURANT">Restaurante</option>
+              <option value="BAR">Bar / Pub</option>
+              <option value="CAFE">Cafeteria / Bistrô</option>
+              <option value="BARBERSHOP">Barbearia</option>
+              <option value="SALON">Salão de Beleza</option>
+              <option value="CLINIC">Clínica Médica / Odonto / Estética</option>
+              <option value="SPA">Spa & Terapias</option>
               <option value="STUDIO">Studio / Fitness / Pilates</option>
-              <option value="EVENTS">Espaço de Eventos / Salão</option>
+              <option value="EVENTS">Espaço de Eventos</option>
+              <option value="OTHER">Outros Serviços com Agendamento</option>
             </select>
           </div>
 
@@ -220,68 +215,13 @@ export const ProfileConfig: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Regras & Capacidade */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-sm space-y-4">
-        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-sky-600" />
-          <span>Regras de Reserva & Capacidade</span>
-        </h3>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-xs text-slate-700 font-semibold mb-1">Duração Média (Minutos)</label>
-            <input
-              type="number"
-              value={form.capacitySettings.avgDurationMinutes}
-              onChange={(e) => handleCapacityChange('avgDurationMinutes', parseInt(e.target.value) || 60)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-700 font-semibold mb-1">Antecedência Mínima (Horas)</label>
-            <input
-              type="number"
-              value={form.capacitySettings.minAdvanceHours}
-              onChange={(e) => handleCapacityChange('minAdvanceHours', parseInt(e.target.value) || 1)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-700 font-semibold mb-1">Tolerância de Atraso (Min)</label>
-            <input
-              type="number"
-              value={form.capacitySettings.toleranceMinutes}
-              onChange={(e) => handleCapacityChange('toleranceMinutes', parseInt(e.target.value) || 15)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-700 font-semibold mb-1">Limite Máx de Pessoas</label>
-            <input
-              type="number"
-              value={form.capacitySettings.maxPaxPerBooking}
-              onChange={(e) => handleCapacityChange('maxPaxPerBooking', parseInt(e.target.value) || 10)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500"
-            />
-          </div>
-        </div>
-
-        <div className="pt-2 border-t border-slate-100">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.capacitySettings.autoConfirm}
-              onChange={(e) => handleCapacityChange('autoConfirm', e.target.checked)}
-              className="w-4 h-4 accent-teal-600 rounded"
-            />
-            <div>
-              <span className="text-xs font-bold text-slate-900 block">Confirmação Automática de Reservas</span>
-              <span className="text-[11px] text-slate-500">Se ativo, reservas feitas pelo cliente na página pública são confirmadas instantaneamente.</span>
-            </div>
-          </label>
+      {/* Informação sobre regras da categoria */}
+      <div className="p-4 rounded-xl bg-teal-50/60 border border-teal-200/80 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2.5">
+          <ShieldCheck className="w-4 h-4 text-teal-700 shrink-0" />
+          <span className="text-teal-950 font-medium">
+            Regras específicas de capacidade e atendimento podem ser ajustadas na aba <strong>Regras da Categoria</strong>.
+          </span>
         </div>
       </div>
 
@@ -292,7 +232,7 @@ export const ProfileConfig: React.FC = () => {
           className="bg-[#bde870] hover:bg-[#afdf5c] text-slate-950 font-black py-3 px-6 rounded-xl shadow-sm text-xs flex items-center gap-2 transition-all active:scale-95"
         >
           <Save className="w-4 h-4" />
-          <span>Salvar Todas as Configurações</span>
+          <span>Salvar Perfil & Horários</span>
         </button>
       </div>
     </form>
