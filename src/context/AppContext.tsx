@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import { INITIAL_ESTABLISHMENTS, INITIAL_BOOKINGS, INITIAL_CLIENTS } from '../data/mockData';
 import { supabase } from '../lib/supabase';
+import { uploadBusinessAsset, deleteBusinessAsset } from '../lib/storage';
 import type { User } from '@supabase/supabase-js';
 
 interface ToastMessage {
@@ -35,6 +36,8 @@ interface AppContextType {
   currentEstablishmentId: string;
   switchEstablishment: (id: string) => void;
   updateEstablishment: (updated: Establishment) => void;
+  uploadEstablishmentImage: (file: File, type: 'logo' | 'cover') => Promise<string>;
+  removeEstablishmentImage: (type: 'logo' | 'cover') => Promise<void>;
   
   bookings: Booking[];
   filteredBookings: Booking[];
@@ -72,7 +75,7 @@ interface AppContextType {
   startLogin: (email?: string, password?: string) => Promise<void>;
   onPaymentConfirmed: () => void;
   logout: () => void;
-  completeOnboarding: (newEst: Establishment) => Promise<void>;
+  completeOnboarding: (newEst: Establishment, logoFile?: File | null, coverFile?: File | null) => Promise<void>;
   goToLanding: () => void;
   dismissFirstAccess: () => void;
   refreshSubscriptionStatus: () => Promise<void>;
@@ -146,16 +149,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return establishments[0] || INITIAL_ESTABLISHMENTS[0];
   }, [establishments]);
 
-  // Bookings state
+  // Bookings state - starts empty; Supabase is the official source of truth
   const [bookings, setBookings] = useState<Booking[]>(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_BOOKINGS_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_BOOKINGS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
   });
 
-  // Clients state
+  // Clients state - starts empty; Supabase is the official source of truth
   const [clients, setClients] = useState<Client[]>(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_CLIENTS_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
   });
 
   // Active View navigation
@@ -433,8 +452,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'Atendimento de excelência com hora marcada.'
       ),
       description: b.description || 'Bem-vindo ao nosso espaço.',
-      logoUrl: b.logo_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80',
-      coverUrl: catSettings.coverUrl || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80',
+      logoUrl: b.logo_url || '',
+      coverUrl: b.cover_image_url || catSettings.coverUrl || '',
       phone: b.phone || '',
       whatsapp: b.phone || '',
       address: b.address || '',
@@ -495,7 +514,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           phone: est.phone || est.whatsapp,
           address: est.address,
           description: est.description,
-          logo_url: est.logoUrl
+          logo_url: est.logoUrl || null,
+          cover_image_url: est.coverUrl || null
         })
         .eq('id', busId);
 
@@ -515,7 +535,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           email: email || '',
           address: est.address,
           description: est.description,
-          logo_url: est.logoUrl
+          logo_url: est.logoUrl || null,
+          cover_image_url: est.coverUrl || null
         }])
         .select('id')
         .single();
@@ -693,7 +714,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .eq('business_id', businessId)
         .order('start_time', { ascending: false });
 
-      if (!appErr && appData && appData.length > 0) {
+      if (appErr) {
+        console.error('Erro ao buscar agendamentos do Supabase:', appErr);
+      } else if (appData) {
         const mappedBookings: Booking[] = appData.map((a: any) => {
           const startIso = a.start_time || new Date().toISOString();
           const endIso = a.end_time || startIso;
@@ -729,6 +752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         setBookings(mappedBookings);
+        localStorage.setItem(LOCAL_STORAGE_BOOKINGS_KEY, JSON.stringify(mappedBookings));
       }
 
       // Also load customers
@@ -738,7 +762,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .eq('business_id', businessId)
         .order('created_at', { ascending: false });
 
-      if (!custErr && custData && custData.length > 0) {
+      if (custErr) {
+        console.error('Erro ao buscar clientes do Supabase:', custErr);
+      } else if (custData) {
         const mappedClients: Client[] = custData.map((c: any) => ({
           id: `client-${c.id}`,
           establishmentId: estIdStr,
@@ -754,6 +780,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           createdAt: c.created_at || new Date().toISOString()
         }));
         setClients(mappedClients);
+        localStorage.setItem(LOCAL_STORAGE_CLIENTS_KEY, JSON.stringify(mappedClients));
       }
     } catch (err) {
       console.warn('Aviso ao sincronizar agendamentos do Supabase:', err);
@@ -866,10 +893,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } else {
         // User is authenticated but hasn't configured a business yet
         setEstablishments([]);
+        setBookings([]);
+        setClients([]);
+        localStorage.removeItem(LOCAL_STORAGE_BOOKINGS_KEY);
+        localStorage.removeItem(LOCAL_STORAGE_CLIENTS_KEY);
+        localStorage.removeItem('reservazen_bookings');
+        localStorage.removeItem('reservazen_clients');
       }
     } catch (err) {
       console.warn('Aviso ao buscar businesses no Supabase:', err);
       setEstablishments([]);
+      setBookings([]);
+      setClients([]);
     }
 
     // 4. Determine AppFlowState based on subscription & business existence
@@ -1034,6 +1069,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       };
       setCurrentUser(demoProfile);
+      setEstablishments(INITIAL_ESTABLISHMENTS);
+      setCurrentEstablishmentId(INITIAL_ESTABLISHMENTS[0]?.id || 'est-bistro');
+      setBookings(INITIAL_BOOKINGS);
+      setClients(INITIAL_CLIENTS);
       setIsFirstAccess(false);
       setAppFlowState('APP');
       setActiveView('dashboard');
@@ -1128,6 +1167,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
     localStorage.removeItem('reservazen_user_session_v3');
     localStorage.removeItem('reservazen_current_est_id');
+    localStorage.removeItem(LOCAL_STORAGE_BOOKINGS_KEY);
+    localStorage.removeItem(LOCAL_STORAGE_CLIENTS_KEY);
+    localStorage.removeItem('reservazen_bookings');
+    localStorage.removeItem('reservazen_clients');
+    setBookings([]);
+    setClients([]);
     setEstablishments([INITIAL_ESTABLISHMENTS[0]]);
     setCurrentEstablishmentId(INITIAL_ESTABLISHMENTS[0]?.id || 'est-bistro');
     setAppFlowState('LANDING');
@@ -1185,7 +1230,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const completeOnboarding = async (newEst: Establishment): Promise<void> => {
+  const completeOnboarding = async (
+    newEst: Establishment,
+    logoFile?: File | null,
+    coverFile?: File | null
+  ): Promise<void> => {
     // 1. Confirm active authenticated user session in Supabase
     const { data: { user }, error: authErr } = await supabase.auth.getUser();
 
@@ -1226,103 +1275,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       throw err;
     }
 
+    // Upload optional logo / cover if provided during onboarding
+    const busId = Number(savedEst.id);
+    if (logoFile && busId) {
+      try {
+        const logoUrl = await uploadBusinessAsset(busId, logoFile, 'logo');
+        await supabase.from('businesses').update({ logo_url: logoUrl }).eq('id', busId).eq('owner_id', currentUserId);
+        savedEst.logoUrl = logoUrl;
+      } catch (lErr) {
+        console.warn('Aviso ao enviar logo no onboarding:', lErr);
+      }
+    }
+
+    if (coverFile && busId) {
+      try {
+        const coverUrl = await uploadBusinessAsset(busId, coverFile, 'cover');
+        await supabase.from('businesses').update({ cover_image_url: coverUrl }).eq('id', busId).eq('owner_id', currentUserId);
+        savedEst.coverUrl = coverUrl;
+      } catch (cErr) {
+        console.warn('Aviso ao enviar capa no onboarding:', cErr);
+      }
+    }
+
     // 4. Set state and local cache ONLY after Supabase confirms persistence
     setEstablishments([savedEst]);
     setCurrentEstablishmentId(savedEst.id);
     localStorage.setItem(`reservazen_est_${currentUserId}`, JSON.stringify(savedEst));
     localStorage.setItem('reservazen_current_est_id', savedEst.id);
 
-    // 5. Generate personalized initial sample bookings for the new establishment
-    const todayStr = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const inTwoDays = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // 5. Newly created establishment starts clean with 0 bookings and 0 mock clients
+    setBookings([]);
+    setClients([]);
+    localStorage.setItem(LOCAL_STORAGE_BOOKINGS_KEY, JSON.stringify([]));
+    localStorage.setItem(LOCAL_STORAGE_CLIENTS_KEY, JSON.stringify([]));
 
-    const res1 = savedEst.resources[0];
-    const res2 = savedEst.resources[1] || savedEst.resources[0];
-    const res3 = savedEst.resources[2] || savedEst.resources[0];
-
-    const isRestaurant = savedEst.businessType === 'RESTAURANT' || savedEst.businessType === 'BAR' || savedEst.businessType === 'CAFE';
-
-    const personalizedBookings: Booking[] = [
-      {
-        id: `RZ-${Math.floor(1000 + Math.random() * 9000)}`,
-        establishmentId: savedEst.id,
-        clientName: 'Lucas Ferreira',
-        clientPhone: '(11) 98765-4321',
-        clientEmail: 'lucas.ferreira@gmail.com',
-        date: todayStr,
-        time: '14:00',
-        durationMinutes: savedEst.capacitySettings.avgDurationMinutes,
-        pax: isRestaurant ? 2 : 1,
-        resourceId: res1?.id,
-        resourceName: res1?.name,
-        serviceId: savedEst.services[0]?.id,
-        serviceName: savedEst.services[0]?.name,
-        status: 'CONFIRMED',
-        notes: 'Reserva inicial confirmada',
-        createdAt: new Date().toISOString(),
-        source: 'PUBLIC_WEB'
-      },
-      {
-        id: `RZ-${Math.floor(1000 + Math.random() * 9000)}`,
-        establishmentId: savedEst.id,
-        clientName: 'Mariana Costa',
-        clientPhone: '(11) 97654-3210',
-        clientEmail: 'mariana.costa@hotmail.com',
-        date: todayStr,
-        time: '19:30',
-        durationMinutes: savedEst.capacitySettings.avgDurationMinutes,
-        pax: isRestaurant ? 4 : 1,
-        resourceId: res2?.id,
-        resourceName: res2?.name,
-        serviceId: savedEst.services[0]?.id,
-        serviceName: savedEst.services[0]?.name,
-        status: 'PENDING',
-        notes: 'Aguardando confirmação do estabelecimento',
-        createdAt: new Date().toISOString(),
-        source: 'PUBLIC_WEB'
-      },
-      {
-        id: `RZ-${Math.floor(1000 + Math.random() * 9000)}`,
-        establishmentId: savedEst.id,
-        clientName: 'Rodrigo Almeida',
-        clientPhone: '(11) 99123-4567',
-        clientEmail: 'rodrigo.almeida@empresa.com.br',
-        date: tomorrow,
-        time: '15:00',
-        durationMinutes: savedEst.capacitySettings.avgDurationMinutes,
-        pax: isRestaurant ? 3 : 1,
-        resourceId: res1?.id,
-        resourceName: res1?.name,
-        serviceId: savedEst.services[0]?.id,
-        serviceName: savedEst.services[0]?.name,
-        status: 'CONFIRMED',
-        notes: '',
-        createdAt: new Date().toISOString(),
-        source: 'MANUAL'
-      },
-      {
-        id: `RZ-${Math.floor(1000 + Math.random() * 9000)}`,
-        establishmentId: savedEst.id,
-        clientName: 'Beatriz Lima',
-        clientPhone: '(11) 98888-7777',
-        clientEmail: 'beatriz.lima@yahoo.com.br',
-        date: inTwoDays,
-        time: '20:00',
-        durationMinutes: savedEst.capacitySettings.avgDurationMinutes,
-        pax: isRestaurant ? 2 : 1,
-        resourceId: res3?.id,
-        resourceName: res3?.name,
-        serviceId: savedEst.services[0]?.id,
-        serviceName: savedEst.services[0]?.name,
-        status: 'CONFIRMED',
-        notes: '',
-        createdAt: new Date().toISOString(),
-        source: 'PUBLIC_WEB'
-      }
-    ];
-
-    setBookings(prev => [...personalizedBookings, ...prev]);
     setIsFirstAccess(true);
     setAppFlowState('APP');
     setActiveView('dashboard');
@@ -1370,6 +1356,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(`reservazen_est_${currentUserId}`, JSON.stringify(updated));
     }
     addToast('success', 'Configurações salvas com sucesso!', 'As alterações do estabelecimento foram atualizadas.');
+  };
+
+  const uploadEstablishmentImage = async (file: File, type: 'logo' | 'cover'): Promise<string> => {
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user?.id) {
+      throw new Error('Usuário não autenticado no Supabase.');
+    }
+
+    const busId = Number(currentEstablishment.id);
+    if (!busId || isNaN(busId)) {
+      throw new Error('ID do estabelecimento não identificado.');
+    }
+
+    // 1. Upload to Supabase Storage bucket 'business-assets'
+    const publicUrl = await uploadBusinessAsset(busId, file, type);
+
+    // 2. Persist URL reference in businesses table
+    const updatePayload = type === 'logo' ? { logo_url: publicUrl } : { cover_image_url: publicUrl };
+    const { error: dbErr } = await supabase
+      .from('businesses')
+      .update(updatePayload)
+      .eq('id', busId)
+      .eq('owner_id', user.id);
+
+    if (dbErr) {
+      console.error('Erro ao atualizar referência da imagem no banco:', dbErr);
+      throw dbErr;
+    }
+
+    // 3. Update React state and local storage cache
+    const updated: Establishment = {
+      ...currentEstablishment,
+      logoUrl: type === 'logo' ? publicUrl : currentEstablishment.logoUrl,
+      coverUrl: type === 'cover' ? publicUrl : currentEstablishment.coverUrl
+    };
+
+    setEstablishments(prev => prev.map(e => e.id === String(busId) ? updated : e));
+    localStorage.setItem(`reservazen_est_${user.id}`, JSON.stringify(updated));
+
+    addToast('success', type === 'logo' ? 'Logo atualizada!' : 'Foto de capa atualizada!', 'A imagem foi salva no Supabase Storage.');
+    return publicUrl;
+  };
+
+  const removeEstablishmentImage = async (type: 'logo' | 'cover'): Promise<void> => {
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user?.id) {
+      throw new Error('Usuário não autenticado no Supabase.');
+    }
+
+    const busId = Number(currentEstablishment.id);
+    if (!busId || isNaN(busId)) {
+      throw new Error('ID do estabelecimento não identificado.');
+    }
+
+    // 1. Remove physical file from Supabase Storage
+    await deleteBusinessAsset(busId, type);
+
+    // 2. Clear database reference
+    const updatePayload = type === 'logo' ? { logo_url: null } : { cover_image_url: null };
+    const { error: dbErr } = await supabase
+      .from('businesses')
+      .update(updatePayload)
+      .eq('id', busId)
+      .eq('owner_id', user.id);
+
+    if (dbErr) {
+      console.error('Erro ao limpar referência no banco:', dbErr);
+      throw dbErr;
+    }
+
+    // 3. Update React state and local storage cache
+    const updated: Establishment = {
+      ...currentEstablishment,
+      logoUrl: type === 'logo' ? '' : currentEstablishment.logoUrl,
+      coverUrl: type === 'cover' ? '' : currentEstablishment.coverUrl
+    };
+
+    setEstablishments(prev => prev.map(e => e.id === String(busId) ? updated : e));
+    localStorage.setItem(`reservazen_est_${user.id}`, JSON.stringify(updated));
+
+    addToast('info', type === 'logo' ? 'Logo removida' : 'Foto de capa removida', 'A imagem foi excluída com sucesso.');
   };
 
   // Filtered bookings for current establishment & current date filter
@@ -1438,6 +1505,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       email: newBooking.clientEmail,
       lastBookingDate: newBooking.date
     });
+
+    // If active establishment is a real Supabase business, persist appointment
+    const busId = Number(currentEstablishment.id);
+    if (!isNaN(busId) && busId > 0) {
+      (async () => {
+        try {
+          let custId: number | null = null;
+          if (newBooking.clientPhone) {
+            const { data: existingCust } = await supabase
+              .from('customers')
+              .select('id')
+              .eq('business_id', busId)
+              .eq('phone', newBooking.clientPhone)
+              .maybeSingle();
+
+            if (existingCust?.id) {
+              custId = existingCust.id;
+            } else {
+              const { data: newCust } = await supabase
+                .from('customers')
+                .insert([{
+                  business_id: busId,
+                  name: newBooking.clientName,
+                  phone: newBooking.clientPhone,
+                  email: newBooking.clientEmail || null
+                }])
+                .select('id')
+                .single();
+              if (newCust?.id) {
+                custId = newCust.id;
+              }
+            }
+          }
+
+          const resIdNum = newBooking.resourceId ? parseInt(newBooking.resourceId.replace(/\D/g, ''), 10) : null;
+          const srvIdNum = newBooking.serviceId ? parseInt(newBooking.serviceId.replace(/\D/g, ''), 10) : null;
+
+          const startTs = new Date(`${newBooking.date}T${newBooking.time}:00`).toISOString();
+          const endTs = new Date(new Date(startTs).getTime() + (newBooking.durationMinutes || 60) * 60000).toISOString();
+
+          const dbStatus = newBooking.status === 'PENDING' ? 'scheduled' :
+            newBooking.status === 'CONFIRMED' ? 'confirmed' :
+            newBooking.status === 'COMPLETED' ? 'completed' :
+            newBooking.status === 'CANCELLED' ? 'cancelled' : 'scheduled';
+
+          const { data: insApp, error: appErr } = await supabase
+            .from('appointments')
+            .insert([{
+              business_id: busId,
+              customer_id: custId,
+              resource_id: resIdNum && !isNaN(resIdNum) ? resIdNum : null,
+              service_id: srvIdNum && !isNaN(srvIdNum) ? srvIdNum : null,
+              start_time: startTs,
+              end_time: endTs,
+              status: dbStatus,
+              pax: newBooking.pax || 1,
+              notes: newBooking.notes || null
+            }])
+            .select('id')
+            .single();
+
+          if (!appErr && insApp?.id) {
+            setBookings(prev => prev.map(b => b.id === newId ? { ...b, id: `RZ-${insApp.id}` } : b));
+          }
+        } catch (err) {
+          console.warn('Aviso ao sincronizar agendamento manual no Supabase:', err);
+        }
+      })();
+    }
 
     addToast('success', `Reserva #${newBooking.id} criada!`, `Cliente: ${newBooking.clientName} para ${newBooking.date} às ${newBooking.time}.`);
     return newBooking;
@@ -1628,6 +1764,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currentEstablishmentId,
       switchEstablishment,
       updateEstablishment,
+      uploadEstablishmentImage,
+      removeEstablishmentImage,
 
       bookings,
       filteredBookings,

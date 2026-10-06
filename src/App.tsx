@@ -170,7 +170,7 @@ const AppContent: React.FC = () => {
       <>
         <OnboardingWizard
           userName={currentUser?.name || 'Proprietário'}
-          onComplete={async (newEst) => await completeOnboarding(newEst)}
+          onComplete={async (newEst, logoFile, coverFile) => await completeOnboarding(newEst, logoFile, coverFile)}
         />
         <NotificationToastContainer />
       </>

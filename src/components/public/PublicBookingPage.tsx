@@ -32,7 +32,8 @@ interface PublicBusinessData {
     phone: string;
     address: string;
     description: string;
-    logo_url: string;
+    logo_url?: string;
+    cover_image_url?: string;
   };
   settings: {
     avg_duration_minutes: number;
@@ -746,43 +747,66 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ slug, onBa
       <div className="max-w-xl mx-auto px-4 pt-6 space-y-6">
         {/* Establishment Profile Header */}
         <div className="rounded-3xl bg-white border border-slate-200/90 overflow-hidden shadow-xs">
-          <div className="p-6 flex items-center gap-4">
-            {business.logo_url ? (
+          {business.cover_image_url && (
+            <div className="w-full h-36 sm:h-44 md:h-48 relative bg-slate-100 overflow-hidden">
               <img
-                src={business.logo_url}
-                alt={business.name}
-                className="w-16 h-16 rounded-2xl object-cover border border-slate-200 shadow-xs shrink-0"
+                src={business.cover_image_url}
+                alt={`Capa de ${business.name}`}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.parentElement?.classList.add('hidden');
+                }}
               />
-            ) : (
-              <div className="w-16 h-16 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200 font-black text-xl shrink-0">
-                {business.name.substring(0, 2).toUpperCase()}
-              </div>
-            )}
-
-            <div className="space-y-1 min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200/60 uppercase tracking-wider">
-                  <CategoryIcon className="w-3 h-3" />
-                  {business.business_type}
-                </span>
-              </div>
-              <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight truncate">
-                {business.name}
-              </h1>
-              {business.address && (
-                <p className="text-xs text-slate-500 flex items-center gap-1 truncate">
-                  <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                  <span>{business.address}</span>
-                </p>
-              )}
-            </div>
-          </div>
-
-          {business.description && (
-            <div className="px-6 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
-              {business.description}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
             </div>
           )}
+
+          <div className={`p-6 ${business.cover_image_url ? 'pt-0' : ''}`}>
+            <div className={`flex flex-col sm:flex-row sm:items-end gap-4 ${business.cover_image_url ? '-mt-10 sm:-mt-12 mb-4 relative z-10' : 'mb-3'}`}>
+              {/* Logo with clean prominence & border */}
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white p-1 border-2 border-white shadow-md shrink-0 overflow-hidden">
+                {business.logo_url ? (
+                  <img
+                    src={business.logo_url}
+                    alt={business.name}
+                    className="w-full h-full rounded-xl object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-200 font-black text-xl sm:text-2xl">
+                    {business.name ? business.name.substring(0, 2).toUpperCase() : 'RZ'}
+                  </div>
+                )}
+              </div>
+
+              {/* Title & Category Info */}
+              <div className="space-y-1 min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-800 border border-teal-200/60 uppercase tracking-wider">
+                    <CategoryIcon className="w-3 h-3" />
+                    {business.business_type}
+                  </span>
+                </div>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                  {business.name}
+                </h1>
+                {business.address && (
+                  <p className="text-xs text-slate-500 flex items-center gap-1 truncate">
+                    <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                    <span>{business.address}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {business.description && (
+              <div className="text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
+                {business.description}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Stepper Indicator */}

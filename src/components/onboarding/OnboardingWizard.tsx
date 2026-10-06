@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Clock,
   Utensils,
@@ -11,13 +11,18 @@ import {
   Beer,
   Heart,
   Building2,
-  Loader2
+  Loader2,
+  Upload,
+  Trash2,
+  Camera,
+  Image as ImageIcon,
+  AlertCircle
 } from 'lucide-react';
 import type { BusinessType, Establishment, ResourceItem, ProfessionalItem, ServiceItem } from '../../types';
 
 interface OnboardingWizardProps {
   userName: string;
-  onComplete: (newEstablishment: Establishment) => Promise<void> | void;
+  onComplete: (newEstablishment: Establishment, logoFile?: File | null, coverFile?: File | null) => Promise<void> | void;
 }
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
@@ -80,6 +85,66 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     'Cancelamento gratuito até 2 horas antes do horário reservado.'
   );
   const [clientNotes, setClientNotes] = useState('');
+
+  // Card 5: Identidade visual opcional
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageError(null);
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      setImageError('Formato da logo inválido. Selecione JPG, PNG ou WEBP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError('A logo deve ter no máximo 5MB.');
+      return;
+    }
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setLogoPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveLogo = () => {
+    setLogoFile(null);
+    setLogoPreview(null);
+    if (logoInputRef.current) logoInputRef.current.value = '';
+  };
+
+  const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageError(null);
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      setImageError('Formato da capa inválido. Selecione JPG, PNG ou WEBP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError('A foto de capa deve ter no máximo 5MB.');
+      return;
+    }
+    setCoverFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setCoverPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveCover = () => {
+    setCoverFile(null);
+    setCoverPreview(null);
+    if (coverInputRef.current) coverInputRef.current.value = '';
+  };
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -414,8 +479,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       businessType,
       tagline: 'Horários organizados. Atendimento de excelência.',
       description: clientNotes.trim() || `Bem-vindo ao ${trimmedName}. Agende seu horário com praticidade e conforto.`,
-      logoUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=300&q=80',
-      coverUrl: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=80',
+      logoUrl: '',
+      coverUrl: '',
       phone: phone.trim() || whatsapp.trim() || '(11) 3333-4444',
       whatsapp: whatsapp.trim() || phone.trim() || '(11) 99999-9999',
       address: address.trim() || 'Rua Principal, 100 - Centro',
@@ -440,7 +505,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     };
 
     try {
-      await onComplete(newEstablishment);
+      await onComplete(newEstablishment, logoFile, coverFile);
     } catch (err: any) {
       console.error('Falha ao salvar estabelecimento no Onboarding:', err);
       setIsSubmitting(false);
@@ -1118,6 +1183,131 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 placeholder="Ex.: Em feriados funcionamos com horário especial."
                 className="w-full bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
               />
+            </div>
+          </div>
+
+          {/* CARD 5: Identidade visual (opcional) */}
+          <div className="bg-white rounded-2xl border border-gray-200/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-6 sm:p-7 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-gray-900">
+                5. Identidade visual <span className="text-xs font-normal text-gray-500">(opcional)</span>
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Adicione a logo e uma imagem de capa para personalizar sua página de agendamentos. Você também pode pular e adicionar depois.
+              </p>
+            </div>
+
+            {imageError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{imageError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              {/* Logo Upload */}
+              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-800">Logomarca (Logo)</label>
+                  <span className="text-[10px] text-gray-400">Até 5MB (JPG, PNG, WEBP)</span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 bg-white flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
+                    {logoPreview ? (
+                      <img src={logoPreview} alt="Prévia da logo" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="text-center p-1">
+                        <Camera className="w-5 h-5 text-gray-400 mx-auto mb-0.5" />
+                        <span className="text-[9px] text-gray-400 font-medium block leading-none">Sem logo</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-1.5">
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={handleLogoChange}
+                    />
+
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => logoInputRef.current?.click()}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Upload className="w-3 h-3 text-emerald-600" />
+                        <span>{logoFile ? 'Trocar logo' : 'Adicionar logo'}</span>
+                      </button>
+
+                      {logoFile && (
+                        <button
+                          type="button"
+                          onClick={handleRemoveLogo}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Remover</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cover Upload */}
+              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-800">Foto de Capa</label>
+                  <span className="text-[10px] text-gray-400">Até 5MB (JPG, PNG, WEBP)</span>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="relative w-full h-20 rounded-xl border-2 border-dashed border-gray-300 bg-white flex items-center justify-center overflow-hidden shadow-xs">
+                    {coverPreview ? (
+                      <img src={coverPreview} alt="Prévia da capa" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="text-center p-1">
+                        <ImageIcon className="w-5 h-5 text-gray-400 mx-auto mb-0.5" />
+                        <span className="text-[9px] text-gray-400 font-medium block">Sem capa</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={handleCoverChange}
+                  />
+
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => coverInputRef.current?.click()}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 shadow-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <Upload className="w-3 h-3 text-emerald-600" />
+                      <span>{coverFile ? 'Trocar capa' : 'Adicionar capa'}</span>
+                    </button>
+
+                    {coverFile && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveCover}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Remover</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
