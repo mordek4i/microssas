@@ -121,12 +121,13 @@ export interface Client {
   establishmentId: string;
   name: string;
   phone: string;
+  phoneNormalized?: string | null;
   email: string;
   totalBookings: number;
   completedBookings: number;
   cancelledBookings: number;
   noShowBookings: number;
-  lastBookingDate: string;
+  lastBookingDate: string | null;
   isVip: boolean;
   notes?: string;
   createdAt: string;

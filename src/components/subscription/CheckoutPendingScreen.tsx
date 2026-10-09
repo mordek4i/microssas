@@ -28,7 +28,7 @@ export const CheckoutPendingScreen: React.FC<CheckoutPendingScreenProps> = ({
   const [currentStatus, setCurrentStatus] = useState<SubscriptionStatus>(user.subscription?.status || 'pending_payment');
   const [isPolling, setIsPolling] = useState(true);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [checkoutUrl, setCheckoutUrl] = useState<string>('https://pay.cakto.com.br/reservazen-pro');
+  const [checkoutUrl, setCheckoutUrl] = useState<string>('https://pay.cakto.com.br/rteo4xn');
 
   // Load public config
   useEffect(() => {

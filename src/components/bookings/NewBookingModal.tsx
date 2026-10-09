@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Modal } from '../common/Modal';
-import { User, Phone, Mail, Calendar, Clock, Users, FileText, CheckCircle2 } from 'lucide-react';
+import { User, Phone, Mail, Calendar, Clock, Users, FileText, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 
 interface NewBookingModalProps {
   isOpen: boolean;
@@ -29,39 +29,64 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   const [notes, setNotes] = useState('');
   const [source, setSource] = useState<'MANUAL' | 'WHATSAPP'>('MANUAL');
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   useEffect(() => {
     if (initialDate) setDate(initialDate);
     if (initialTime) setTime(initialTime);
   }, [initialDate, initialTime]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage(null);
+      setIsSubmitting(false);
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
 
     const selectedResource = currentEstablishment.resources.find(r => r.id === resourceId);
     const selectedService = currentEstablishment.services.find(s => s.id === serviceId);
 
-    addBooking({
-      clientName,
-      clientPhone,
-      clientEmail,
-      date,
-      time,
-      pax,
-      resourceId: selectedResource?.id,
-      resourceName: selectedResource?.name,
-      serviceId: selectedService?.id,
-      serviceName: selectedService?.name,
-      servicePrice: selectedService?.price,
-      durationMinutes: selectedService?.durationMinutes || currentEstablishment.capacitySettings.avgDurationMinutes,
-      notes,
-      source
-    });
+    try {
+      const result = await addBooking({
+        clientName,
+        clientPhone,
+        clientEmail,
+        date,
+        time,
+        pax,
+        resourceId: selectedResource?.id,
+        resourceName: selectedResource?.name,
+        serviceId: selectedService?.id,
+        serviceName: selectedService?.name,
+        servicePrice: selectedService?.price,
+        durationMinutes: selectedService?.durationMinutes || currentEstablishment.capacitySettings.avgDurationMinutes,
+        notes,
+        source
+      });
 
-    setClientName('');
-    setClientPhone('');
-    setClientEmail('');
-    setNotes('');
-    onClose();
+      if (result.success) {
+        setClientName('');
+        setClientPhone('');
+        setClientEmail('');
+        setNotes('');
+        setErrorMessage(null);
+        onClose();
+      } else {
+        setErrorMessage(result.error || 'Não foi possível confirmar o agendamento.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Erro inesperado ao criar reserva. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -253,21 +278,43 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
           </div>
         </div>
 
+        {/* Feedback de Erro */}
+        {errorMessage && (
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-semibold block mb-0.5">Não foi possível criar a reserva:</span>
+              <span>{errorMessage}</span>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+            disabled={isSubmitting}
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50 transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
             Cancelar
           </button>
           <button
             type="submit"
-            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#bde870] hover:bg-[#afdf5c] text-slate-950 shadow-sm flex items-center gap-2 transition-all"
+            disabled={isSubmitting}
+            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#bde870] hover:bg-[#afdf5c] disabled:opacity-50 text-slate-950 shadow-sm flex items-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
           >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Confirmar Reserva</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Salvando...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Confirmar Reserva</span>
+              </>
+            )}
           </button>
         </div>
       </form>

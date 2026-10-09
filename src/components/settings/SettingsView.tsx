@@ -177,7 +177,7 @@ export const SettingsView: React.FC = () => {
               <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
               <div>
                 <p className="text-xs font-bold text-amber-950">
-                  Você está no período de avaliação gratuito de 7 dias
+                  Você está no período de avaliação
                 </p>
                 <p className="text-[11px] text-amber-800">
                   {trialDaysLeft > 0
@@ -188,7 +188,7 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <a
-              href="https://pay.cakto.com.br/reservazen-pro"
+              href="https://pay.cakto.com.br/rteo4xn"
               target="_blank"
               rel="noopener noreferrer"
               className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs px-4 py-2 rounded-xl transition-all shadow-xs text-center shrink-0 cursor-pointer"

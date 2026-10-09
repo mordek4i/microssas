@@ -32,7 +32,8 @@ const AppContent: React.FC = () => {
     startLogin, 
     onPaymentConfirmed,
     logout,
-    completeOnboarding 
+    completeOnboarding,
+    refreshSubscriptionStatus
   } = useApp();
 
   // Auth modal states
@@ -158,6 +159,7 @@ const AppContent: React.FC = () => {
         <SubscriptionBlockedScreen
           user={currentUser}
           onLogout={logout}
+          onRefreshStatus={refreshSubscriptionStatus}
         />
         <NotificationToastContainer />
       </>

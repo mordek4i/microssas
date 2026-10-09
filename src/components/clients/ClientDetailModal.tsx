@@ -7,7 +7,9 @@ import {
   Mail, 
   Star, 
   History, 
-  Save 
+  Save,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 interface ClientDetailModalProps {
@@ -21,30 +23,43 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
   isOpen,
   onClose
 }) => {
-  const { clients, bookings, addOrUpdateClient, getResourceTerm } = useApp();
+  const { clients, bookings, updateClientProfile, getResourceTerm } = useApp();
 
   const client = clients.find(c => c.id === clientId);
   const clientBookings = bookings.filter(b => b.clientPhone === client?.phone || b.clientName === client?.name);
 
   const [isVip, setIsVip] = useState(false);
   const [notes, setNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (client) {
       setIsVip(client.isVip);
       setNotes(client.notes || '');
+      setErrorMessage(null);
     }
-  }, [client]);
+  }, [client, isOpen]);
 
   if (!client) return null;
 
-  const handleSave = () => {
-    addOrUpdateClient({
-      phone: client.phone,
-      isVip,
-      notes
+  const handleSave = async () => {
+    if (!client || isSaving) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    const result = await updateClientProfile(client.id, {
+      notes,
+      isVip
     });
-    onClose();
+
+    setIsSaving(false);
+
+    if (result.success) {
+      onClose();
+    } else {
+      setErrorMessage(result.error || 'Erro ao salvar alterações do cliente.');
+    }
   };
 
   return (
@@ -56,6 +71,14 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
       maxWidth="xl"
     >
       <div className="space-y-6 text-slate-800">
+        {/* Error Alert */}
+        {errorMessage && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-center gap-2.5 text-xs text-rose-700 animate-fade-in">
+            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <span className="font-medium">{errorMessage}</span>
+          </div>
+        )}
+
         {/* Header Profile Card */}
         <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -80,7 +103,8 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
 
           <button
             onClick={() => setIsVip(!isVip)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+            disabled={isSaving}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50 ${
               isVip
                 ? 'bg-amber-400 text-slate-950 shadow-sm'
                 : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-xs'
@@ -95,25 +119,19 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
         <div className="grid grid-cols-4 gap-3 text-center">
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-[10px] font-bold text-slate-400 uppercase">Total Reservas</span>
-            <div className="text-base font-black text-slate-900 mt-0.5">{clientBookings.length}</div>
+            <div className="text-base font-black text-slate-900 mt-0.5">{client.totalBookings}</div>
           </div>
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-[10px] font-bold text-slate-400 uppercase">Concluídas</span>
-            <div className="text-base font-black text-emerald-600 mt-0.5">
-              {clientBookings.filter(b => b.status === 'COMPLETED' || b.status === 'CONFIRMED' || b.status === 'IN_SERVICE').length}
-            </div>
+            <div className="text-base font-black text-emerald-600 mt-0.5">{client.completedBookings}</div>
           </div>
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-[10px] font-bold text-slate-400 uppercase">Canceladas</span>
-            <div className="text-base font-black text-rose-600 mt-0.5">
-              {clientBookings.filter(b => b.status === 'CANCELLED').length}
-            </div>
+            <div className="text-base font-black text-rose-600 mt-0.5">{client.cancelledBookings}</div>
           </div>
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
             <span className="text-[10px] font-bold text-slate-400 uppercase">No-Show</span>
-            <div className="text-base font-black text-slate-600 mt-0.5">
-              {clientBookings.filter(b => b.status === 'NO_SHOW').length}
-            </div>
+            <div className="text-base font-black text-slate-600 mt-0.5">{client.noShowBookings}</div>
           </div>
         </div>
 
@@ -126,8 +144,9 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            disabled={isSaving}
             placeholder="Ex: Cliente prefere mesas de canto, vinhos secos..."
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 disabled:opacity-60"
           />
         </div>
 
@@ -168,16 +187,27 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
         <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+            disabled={isSaving}
+            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50 transition-colors"
           >
             Fechar
           </button>
           <button
             onClick={handleSave}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#bde870] hover:bg-[#afdf5c] text-slate-950 shadow-sm flex items-center gap-2 transition-all"
+            disabled={isSaving}
+            className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#bde870] hover:bg-[#afdf5c] disabled:opacity-50 text-slate-950 shadow-sm flex items-center gap-2 transition-all cursor-pointer disabled:cursor-not-allowed"
           >
-            <Save className="w-4 h-4" />
-            <span>Salvar Perfil</span>
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Salvando...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Salvar Perfil</span>
+              </>
+            )}
           </button>
         </div>
       </div>

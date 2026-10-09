@@ -14,7 +14,9 @@ import {
   Trash2,
   Save,
   MessageSquare,
-  Clock
+  Clock,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 interface BookingDetailModalProps {
@@ -36,6 +38,8 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [pax, setPax] = useState<number>(2);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (booking) {
@@ -43,20 +47,33 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
       setDate(booking.date);
       setTime(booking.time);
       setPax(booking.pax);
+      setErrorMessage(null);
+      setIsSaving(false);
     }
-  }, [booking]);
+  }, [booking, isOpen]);
 
   if (!booking) return null;
 
-  const handleSaveEdits = () => {
-    updateBooking({
+  const handleSaveEdits = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    const result = await updateBooking({
       ...booking,
       notes,
       date,
       time,
       pax
     });
-    onClose();
+
+    setIsSaving(false);
+
+    if (result.success) {
+      onClose();
+    } else {
+      setErrorMessage(result.error || 'Não foi possível salvar as alterações.');
+    }
   };
 
   const handleDelete = () => {
@@ -119,6 +136,14 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           </div>
         </div>
 
+        {/* Error Feedback Banner */}
+        {errorMessage && (
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         {/* Edit fields */}
         <div className="space-y-3">
           <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Reagendar / Alterar Detalhes</h4>
@@ -128,8 +153,12 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               <input
                 type="date"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-semibold"
+                disabled={isSaving}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  setErrorMessage(null);
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-semibold disabled:opacity-60"
               />
             </div>
 
@@ -138,8 +167,12 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               <input
                 type="time"
                 value={time}
-                onChange={(e) => setTime(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-semibold"
+                disabled={isSaving}
+                onChange={(e) => {
+                  setTime(e.target.value);
+                  setErrorMessage(null);
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-semibold disabled:opacity-60"
               />
             </div>
 
@@ -149,8 +182,12 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 type="number"
                 min={1}
                 value={pax}
-                onChange={(e) => setPax(parseInt(e.target.value) || 1)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-semibold"
+                disabled={isSaving}
+                onChange={(e) => {
+                  setPax(parseInt(e.target.value) || 1);
+                  setErrorMessage(null);
+                }}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 font-semibold disabled:opacity-60"
               />
             </div>
           </div>
@@ -160,8 +197,12 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             <textarea
               rows={2}
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500"
+              disabled={isSaving}
+              onChange={(e) => {
+                setNotes(e.target.value);
+                setErrorMessage(null);
+              }}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-teal-500 disabled:opacity-60"
             />
           </div>
         </div>
@@ -250,11 +291,22 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               Fechar
             </button>
             <button
+              type="button"
+              disabled={isSaving}
               onClick={handleSaveEdits}
-              className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#bde870] hover:bg-[#afdf5c] text-slate-950 shadow-sm flex items-center gap-2 transition-all"
+              className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#bde870] hover:bg-[#afdf5c] text-slate-950 shadow-sm flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Save className="w-4 h-4" />
-              <span>Salvar Alterações</span>
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Salvando...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Salvar Alterações</span>
+                </>
+              )}
             </button>
           </div>
         </div>

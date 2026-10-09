@@ -54,7 +54,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             onClick={onStartSignup}
             className="bg-[#10b981] hover:bg-[#059669] text-white font-extrabold px-5 py-2.5 rounded-full text-xs transition-all shadow-xs active:scale-95 cursor-pointer"
           >
-            Começar 7 dias grátis
+            Começar agora
           </button>
         </div>
       </header>
@@ -64,8 +64,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* Left Content Column */}
         <div className="space-y-6 text-left">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-extrabold">
-            <span className="text-emerald-600">🎉</span>
-            <span>7 dias de teste grátis — Sem cartão de crédito</span>
+            <span className="text-emerald-600">✨</span>
+            <span>Crie sua página de reservas em minutos — Sem complicação</span>
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.12]">
@@ -73,7 +73,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </h1>
 
           <p className="text-sm sm:text-base text-slate-600 max-w-lg leading-relaxed font-normal">
-            Receba reservas 24 horas por dia, reduza horários vazios e acompanhe todos os seus agendamentos em um único painel. Experimente 7 dias grátis sem compromisso.
+            Receba reservas 24 horas por dia, reduza horários vazios e acompanhe todos os seus agendamentos em um único painel, de forma simples e profissional.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
@@ -81,7 +81,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={onStartSignup}
               className="w-full sm:w-auto bg-[#10b981] hover:bg-[#059669] text-white font-black py-3.5 px-7 rounded-full text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95 cursor-pointer"
             >
-              <span>Começar 7 dias grátis</span>
+              <span>Criar minha conta</span>
               <ArrowRight className="w-4 h-4 stroke-[3]" />
             </button>
 
@@ -97,7 +97,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="flex flex-wrap items-center gap-6 text-[11px] text-slate-500 font-semibold pt-2">
             <span className="flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
-              7 dias grátis sem cartão
+              Sem necessidade de cartão
             </span>
             <span className="flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
@@ -324,13 +324,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="rounded-3xl bg-linear-to-br from-[#064e3b] via-[#047857] to-[#022c22] text-white p-10 sm:p-16 text-center space-y-6 shadow-2xl relative overflow-hidden">
           <div className="space-y-3 max-w-2xl mx-auto">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-bold">
-              <span>🎁 Experimente por 7 dias grátis</span>
+              <span>🚀 Comece hoje mesmo</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-              Comece seu teste grátis hoje mesmo
+              Comece a receber reservas hoje mesmo
             </h2>
             <p className="text-xs sm:text-sm text-emerald-100 font-normal">
-              Monte sua página de reservas em 2 minutos e comece a receber agendamentos. Sem cobrança nos primeiros 7 dias.
+              Monte sua página de reservas em 2 minutos e comece a receber agendamentos de forma rápida e segura.
             </p>
           </div>
 
@@ -339,7 +339,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               onClick={onStartSignup}
               className="bg-[#10b981] hover:bg-[#059669] text-white font-black py-4 px-8 rounded-full text-xs inline-flex items-center gap-2 shadow-lg transition-all active:scale-95 cursor-pointer"
             >
-              <span>Começar meus 7 dias grátis</span>
+              <span>Criar minha página agora</span>
               <ArrowRight className="w-4 h-4 stroke-[3]" />
             </button>
           </div>

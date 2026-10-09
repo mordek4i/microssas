@@ -17,6 +17,7 @@ import type {
 import { INITIAL_ESTABLISHMENTS, INITIAL_BOOKINGS, INITIAL_CLIENTS } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 import { uploadBusinessAsset, deleteBusinessAsset } from '../lib/storage';
+import { normalizePhone } from '../utils/phone';
 import type { User } from '@supabase/supabase-js';
 
 interface ToastMessage {
@@ -41,13 +42,14 @@ interface AppContextType {
   
   bookings: Booking[];
   filteredBookings: Booking[];
-  addBooking: (bookingData: Partial<Booking>) => Booking;
+  addBooking: (bookingData: Partial<Booking>) => Promise<{ success: boolean; booking?: Booking; error?: string }>;
   updateBookingStatus: (bookingId: string, status: BookingStatus) => void;
-  updateBooking: (updated: Booking) => void;
+  updateBooking: (updated: Booking) => Promise<{ success: boolean; error?: string }>;
   deleteBooking: (bookingId: string) => void;
 
   clients: Client[];
   addOrUpdateClient: (clientData: Partial<Client>) => void;
+  updateClientProfile: (clientId: string, updates: { notes?: string; isVip?: boolean }) => Promise<{ success: boolean; error?: string }>;
 
   activeView: MainView;
   setActiveView: (view: MainView) => void;
@@ -765,20 +767,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (custErr) {
         console.error('Erro ao buscar clientes do Supabase:', custErr);
       } else if (custData) {
-        const mappedClients: Client[] = custData.map((c: any) => ({
-          id: `client-${c.id}`,
-          establishmentId: estIdStr,
-          name: c.name,
-          phone: c.phone || '',
-          email: c.email || '',
-          totalBookings: 1,
-          completedBookings: 0,
-          cancelledBookings: 0,
-          noShowBookings: 0,
-          lastBookingDate: new Date().toISOString().split('T')[0],
-          isVip: false,
-          createdAt: c.created_at || new Date().toISOString()
-        }));
+        // Fetch real customer metrics via RPC get_customer_metrics
+        const { data: metricsData, error: metricsErr } = await supabase
+          .rpc('get_customer_metrics', { p_business_id: businessId });
+
+        const metricsMap = new Map<number, {
+          totalBookings: number;
+          completedBookings: number;
+          cancelledBookings: number;
+          noShowBookings: number;
+          lastBookingDate: string | null;
+        }>();
+
+        if (metricsErr) {
+          console.warn('Aviso ao buscar métricas de clientes via RPC:', metricsErr);
+        } else if (metricsData && Array.isArray(metricsData)) {
+          for (const m of metricsData) {
+            let formattedLastDate: string | null = null;
+            if (m.last_booking_date) {
+              try {
+                formattedLastDate = new Date(m.last_booking_date).toISOString().split('T')[0];
+              } catch {
+                formattedLastDate = String(m.last_booking_date);
+              }
+            }
+            metricsMap.set(Number(m.customer_id), {
+              totalBookings: Number(m.total_bookings) || 0,
+              completedBookings: Number(m.completed_bookings) || 0,
+              cancelledBookings: Number(m.cancelled_bookings) || 0,
+              noShowBookings: Number(m.no_show_bookings) || 0,
+              lastBookingDate: formattedLastDate
+            });
+          }
+        }
+
+        const mappedClients: Client[] = custData.map((c: any) => {
+          const metrics = metricsMap.get(Number(c.id));
+          return {
+            id: `client-${c.id}`,
+            establishmentId: estIdStr,
+            name: c.name,
+            phone: c.phone || '',
+            phoneNormalized: c.phone_normalized || null,
+            email: c.email || '',
+            totalBookings: metrics ? metrics.totalBookings : 0,
+            completedBookings: metrics ? metrics.completedBookings : 0,
+            cancelledBookings: metrics ? metrics.cancelledBookings : 0,
+            noShowBookings: metrics ? metrics.noShowBookings : 0,
+            lastBookingDate: metrics ? metrics.lastBookingDate : null,
+            isVip: Boolean(c.is_vip),
+            notes: c.notes || '',
+            createdAt: c.created_at || new Date().toISOString()
+          };
+        });
         setClients(mappedClients);
         localStorage.setItem(LOCAL_STORAGE_CLIENTS_KEY, JSON.stringify(mappedClients));
       }
@@ -932,6 +973,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         localStorage.removeItem('reservazen_establishments_v2');
         localStorage.removeItem('reservazen_establishments_v3');
         localStorage.removeItem('reservazen_establishments');
+        localStorage.removeItem('reservazen_accounts');
 
         // Sanitize legacy cached session in localStorage if present
         const rawSaved = localStorage.getItem('reservazen_user_session_v3');
@@ -990,6 +1032,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
+  // Periodic check for trial expiration while using the app
+  useEffect(() => {
+    if (!currentUser || appFlowState !== 'APP') return;
+    if (currentUser.subscription?.status !== 'trialing') return;
+
+    const interval = setInterval(() => {
+      const expiresAt = currentUser.subscription?.expires_at;
+      if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+        refreshSubscriptionStatus();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [currentUser?.id, currentUser?.subscription?.status, currentUser?.subscription?.expires_at, appFlowState]);
+
   // Auth & Flow Actions with Supabase Auth
   const startSignup = async (name: string, email?: string, password?: string) => {
     if (!email || !password) throw new Error('E-mail e senha são obrigatórios.');
@@ -1041,17 +1098,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(profile);
     localStorage.setItem('reservazen_user_session_v3', JSON.stringify(profile));
 
-    // Cache user for instant login fallback if email confirmation is required
-    const accounts = JSON.parse(localStorage.getItem('reservazen_accounts') || '{}');
-    accounts[cleanEmail.toLowerCase()] = { profile, password: cleanPassword };
-    localStorage.setItem('reservazen_accounts', JSON.stringify(accounts));
-
     if (data.session) {
       await syncUserWithSupabase(user);
-      addToast('success', 'Conta criada com sucesso! 🎉', 'Você tem 7 dias de teste grátis.');
+      addToast('success', 'Conta criada com sucesso! 🎉', 'Seja bem-vindo ao ReservaZen.');
     } else {
       setAppFlowState('ONBOARDING');
-      addToast('success', 'Cadastro realizado! 🎉', 'Você tem 7 dias de teste grátis.');
+      addToast('success', 'Cadastro realizado! 🎉', 'Seja bem-vindo ao ReservaZen.');
     }
   };
 
@@ -1089,45 +1141,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     if (error) {
-      // If email confirmation is required by Supabase project settings
       if (error.message.includes('Email not confirmed') || error.message.includes('email_not_confirmed')) {
-        const accounts = JSON.parse(localStorage.getItem('reservazen_accounts') || '{}');
-        const cached = accounts[cleanEmail.toLowerCase()];
-        if (cached && (!cached.password || cached.password === cleanPassword)) {
-          const profile = { ...cached.profile };
-          if (profile.subscription?.plan === 'trial_7_dias' && profile.subscription?.status === 'active' && !profile.subscription?.cakto_order_id && !profile.subscription?.cakto_subscription_id) {
-            profile.subscription.status = 'trialing';
-          }
-
-          let isBlocked = false;
-          if (profile.subscription) {
-            const { status, expires_at } = profile.subscription;
-            const isExpired = status === 'trialing' && expires_at && new Date(expires_at).getTime() <= Date.now();
-            isBlocked = isExpired || ['canceled', 'refunded', 'chargeback', 'expired'].includes(status);
-          }
-
-          setCurrentUser(profile);
-          localStorage.setItem('reservazen_user_session_v3', JSON.stringify(profile));
-
-          if (isBlocked) {
-            setAppFlowState('BLOCKED_SUBSCRIPTION');
-          } else {
-            const userSavedEst = localStorage.getItem(`reservazen_est_${profile.id}`);
-            if (userSavedEst) {
-              const singleEst: Establishment = JSON.parse(userSavedEst);
-              setEstablishments([singleEst]);
-              setCurrentEstablishmentId(singleEst.id);
-              setAppFlowState('APP');
-            } else {
-              setEstablishments([]);
-              setAppFlowState('ONBOARDING');
-            }
-          }
-          addToast('info', 'E-mail pendente de confirmação no Supabase', 'Entrando na sua conta. (Dica: no Supabase desmarque "Confirm email" para dispensar confirmação).');
-          return;
-        }
-
-        throw new Error('E-mail ainda não confirmado no Supabase. No painel do Supabase (Authentication -> Providers -> Email), desmarque a opção "Confirm email" para permitir login sem confirmação por link.');
+        throw new Error('E-mail ainda não confirmado no Supabase. Por favor, verifique sua caixa de entrada.');
       }
 
       if (error.message.includes('Invalid login credentials') || error.message.includes('invalid_grant')) {
@@ -1167,6 +1182,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
     localStorage.removeItem('reservazen_user_session_v3');
     localStorage.removeItem('reservazen_current_est_id');
+    localStorage.removeItem('reservazen_accounts');
     localStorage.removeItem(LOCAL_STORAGE_BOOKINGS_KEY);
     localStorage.removeItem(LOCAL_STORAGE_CLIENTS_KEY);
     localStorage.removeItem('reservazen_bookings');
@@ -1472,111 +1488,178 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return estBookings;
   }, [bookings, currentEstablishment.id, dateFilter, customStartDate, customEndDate]);
 
+  const formatFriendlyError = (rawError: string): string => {
+    if (!rawError) return 'Erro ao processar a solicitação. Tente novamente.';
+    if (rawError.includes('HORARIO_INDISPONIVEL')) {
+      return 'Esse horário já está ocupado por outra reserva. Escolha outro horário.';
+    }
+    if (rawError.includes('CAPACIDADE_INSUFICIENTE')) {
+      return 'A quantidade de pessoas excede a capacidade da mesa/recurso selecionado.';
+    }
+    if (rawError.includes('STATUS_BLOQUEADO')) {
+      return 'Esta reserva não pode mais ser editada pois já foi concluída ou cancelada.';
+    }
+    if (rawError.includes('ACESSO_NEGADO')) {
+      return 'Você não tem permissão para realizar esta ação neste estabelecimento.';
+    }
+    if (rawError.includes('QUANTIDADE_PESSOAS_INVALIDA') || rawError.includes('appointments_pax_check')) {
+      return 'A quantidade de pessoas deve ser no mínimo 1.';
+    }
+    if (rawError.includes('RESERVA_NAO_ENCONTRADA')) {
+      return 'Reserva não encontrada no sistema.';
+    }
+    if (rawError.includes('ESTABELECIMENTO_NAO_ENCONTRADO')) {
+      return 'Estabelecimento não encontrado no sistema.';
+    }
+    if (rawError.includes('RECURSO_INVALIDO')) {
+      return 'A mesa ou recurso selecionado não pertence a este estabelecimento.';
+    }
+    if (rawError.includes('RECURSO_INATIVO')) {
+      return 'A mesa ou recurso selecionado não está ativo no momento.';
+    }
+    if (rawError.includes('PROFISSIONAL_INVALIDO')) {
+      return 'O profissional selecionado não pertence a este estabelecimento.';
+    }
+    if (rawError.includes('PROFISSIONAL_INATIVO')) {
+      return 'O profissional selecionado não está disponível no momento.';
+    }
+    if (rawError.includes('SERVICO_INVALIDO')) {
+      return 'O serviço selecionado não pertence a este estabelecimento.';
+    }
+    if (rawError.includes('SERVICO_INATIVO')) {
+      return 'O serviço selecionado não está ativo no momento.';
+    }
+    if (rawError.includes('NOME_OBRIGATORIO')) {
+      return 'O nome do cliente é obrigatório.';
+    }
+    if (rawError.includes('DATA_HORA_INVALIDA')) {
+      return 'Data e horário são obrigatórios.';
+    }
+    if (rawError.includes('row-level security') || rawError.includes('violates row-level security policy')) {
+      return 'Permissão negada para gravar dados neste estabelecimento.';
+    }
+    if (rawError.includes('JWT') || rawError.includes('token') || rawError.includes('auth')) {
+      return 'Sua sessão expirou. Faça login novamente para continuar.';
+    }
+    return rawError;
+  };
+
   // Add booking
-  const addBooking = (bookingData: Partial<Booking>): Booking => {
-    const newId = `RZ-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newBooking: Booking = {
-      id: newId,
-      establishmentId: currentEstablishment.id,
-      clientName: bookingData.clientName || 'Cliente sem nome',
-      clientPhone: bookingData.clientPhone || '(00) 00000-0000',
-      clientEmail: bookingData.clientEmail || '',
-      date: bookingData.date || new Date().toISOString().split('T')[0],
-      time: bookingData.time || '19:00',
-      durationMinutes: bookingData.durationMinutes || currentEstablishment.capacitySettings.avgDurationMinutes,
-      pax: bookingData.pax || 2,
-      resourceId: bookingData.resourceId,
-      resourceName: bookingData.resourceName,
-      serviceId: bookingData.serviceId,
-      serviceName: bookingData.serviceName,
-      servicePrice: bookingData.servicePrice,
-      status: bookingData.status || (currentEstablishment.capacitySettings.autoConfirm ? 'CONFIRMED' : 'PENDING'),
-      notes: bookingData.notes || '',
-      createdAt: new Date().toISOString(),
-      source: bookingData.source || 'MANUAL'
-    };
-
-    setBookings(prev => [newBooking, ...prev]);
-
-    // Also auto add/update client profile
-    addOrUpdateClient({
-      name: newBooking.clientName,
-      phone: newBooking.clientPhone,
-      email: newBooking.clientEmail,
-      lastBookingDate: newBooking.date
-    });
-
-    // If active establishment is a real Supabase business, persist appointment
+  const addBooking = async (bookingData: Partial<Booking>): Promise<{ success: boolean; booking?: Booking; error?: string }> => {
     const busId = Number(currentEstablishment.id);
-    if (!isNaN(busId) && busId > 0) {
-      (async () => {
-        try {
-          let custId: number | null = null;
-          if (newBooking.clientPhone) {
-            const { data: existingCust } = await supabase
-              .from('customers')
-              .select('id')
-              .eq('business_id', busId)
-              .eq('phone', newBooking.clientPhone)
-              .maybeSingle();
-
-            if (existingCust?.id) {
-              custId = existingCust.id;
-            } else {
-              const { data: newCust } = await supabase
-                .from('customers')
-                .insert([{
-                  business_id: busId,
-                  name: newBooking.clientName,
-                  phone: newBooking.clientPhone,
-                  email: newBooking.clientEmail || null
-                }])
-                .select('id')
-                .single();
-              if (newCust?.id) {
-                custId = newCust.id;
-              }
-            }
-          }
-
-          const resIdNum = newBooking.resourceId ? parseInt(newBooking.resourceId.replace(/\D/g, ''), 10) : null;
-          const srvIdNum = newBooking.serviceId ? parseInt(newBooking.serviceId.replace(/\D/g, ''), 10) : null;
-
-          const startTs = new Date(`${newBooking.date}T${newBooking.time}:00`).toISOString();
-          const endTs = new Date(new Date(startTs).getTime() + (newBooking.durationMinutes || 60) * 60000).toISOString();
-
-          const dbStatus = newBooking.status === 'PENDING' ? 'scheduled' :
-            newBooking.status === 'CONFIRMED' ? 'confirmed' :
-            newBooking.status === 'COMPLETED' ? 'completed' :
-            newBooking.status === 'CANCELLED' ? 'cancelled' : 'scheduled';
-
-          const { data: insApp, error: appErr } = await supabase
-            .from('appointments')
-            .insert([{
-              business_id: busId,
-              customer_id: custId,
-              resource_id: resIdNum && !isNaN(resIdNum) ? resIdNum : null,
-              service_id: srvIdNum && !isNaN(srvIdNum) ? srvIdNum : null,
-              start_time: startTs,
-              end_time: endTs,
-              status: dbStatus,
-              pax: newBooking.pax || 1,
-              notes: newBooking.notes || null
-            }])
-            .select('id')
-            .single();
-
-          if (!appErr && insApp?.id) {
-            setBookings(prev => prev.map(b => b.id === newId ? { ...b, id: `RZ-${insApp.id}` } : b));
-          }
-        } catch (err) {
-          console.warn('Aviso ao sincronizar agendamento manual no Supabase:', err);
-        }
-      })();
+    if (isNaN(busId) || busId <= 0) {
+      const err = 'Identificador do estabelecimento inválido para persistência.';
+      addToast('error', 'Erro ao criar reserva', err);
+      return { success: false, error: err };
     }
 
-    addToast('success', `Reserva #${newBooking.id} criada!`, `Cliente: ${newBooking.clientName} para ${newBooking.date} às ${newBooking.time}.`);
-    return newBooking;
+    const cleanName = (bookingData.clientName || '').trim() || 'Cliente sem nome';
+    const rawPhone = (bookingData.clientPhone || '').trim();
+    const cleanEmail = (bookingData.clientEmail || '').trim().toLowerCase();
+
+    const bookingDate = bookingData.date || new Date().toISOString().split('T')[0];
+    const bookingTime = bookingData.time || '19:00';
+    const formattedTime = bookingTime.length === 5 ? `${bookingTime}:00` : bookingTime;
+    const durationMin = bookingData.durationMinutes || currentEstablishment.capacitySettings.avgDurationMinutes || 60;
+    const paxCount = bookingData.pax && bookingData.pax > 0 ? bookingData.pax : 1;
+
+    const resIdNum = bookingData.resourceId ? parseInt(bookingData.resourceId.replace(/\D/g, ''), 10) : null;
+    const srvIdNum = bookingData.serviceId ? parseInt(bookingData.serviceId.replace(/\D/g, ''), 10) : null;
+
+    const rawStatus = bookingData.status || (currentEstablishment.capacitySettings.autoConfirm ? 'CONFIRMED' : 'PENDING');
+    const dbStatus = rawStatus === 'PENDING' ? 'scheduled' :
+      rawStatus === 'CONFIRMED' ? 'confirmed' :
+      rawStatus === 'IN_SERVICE' ? 'confirmed' :
+      rawStatus === 'COMPLETED' ? 'completed' :
+      rawStatus === 'CANCELLED' ? 'cancelled' :
+      rawStatus === 'NO_SHOW' ? 'no_show' : 'scheduled';
+
+    try {
+      // 1. Chamada transacional e atômica da RPC create_admin_appointment no Supabase
+      const { data, error } = await supabase.rpc('create_admin_appointment', {
+        p_business_id: busId,
+        p_customer_name: cleanName,
+        p_date: bookingDate,
+        p_time: formattedTime,
+        p_customer_phone: rawPhone || null,
+        p_customer_email: cleanEmail || null,
+        p_service_id: srvIdNum && !isNaN(srvIdNum) ? srvIdNum : null,
+        p_professional_id: null,
+        p_resource_id: resIdNum && !isNaN(resIdNum) ? resIdNum : null,
+        p_pax: paxCount,
+        p_notes: bookingData.notes?.trim() || null,
+        p_duration_minutes: durationMin,
+        p_status: dbStatus
+      });
+
+      if (error) {
+        console.error('Erro na RPC create_admin_appointment:', error);
+        const friendlyMsg = formatFriendlyError(error.message || '');
+        addToast('error', 'Não foi possível criar a reserva', friendlyMsg);
+        return { success: false, error: friendlyMsg };
+      }
+
+      if (!data || !data.success || !data.appointment_id) {
+        const errorMsg = data?.error || 'Erro desconhecido ao salvar reserva no banco.';
+        const friendlyMsg = formatFriendlyError(errorMsg);
+        addToast('error', 'Não foi possível criar a reserva', friendlyMsg);
+        return { success: false, error: friendlyMsg };
+      }
+
+      // 2. Montar objeto oficial com o ID definitivo retornado pelo PostgreSQL
+      const persistentBooking: Booking = {
+        id: `RZ-${data.appointment_id}`,
+        establishmentId: currentEstablishment.id,
+        clientName: cleanName,
+        clientPhone: rawPhone,
+        clientEmail: cleanEmail,
+        date: bookingDate,
+        time: bookingTime,
+        durationMinutes: data.duration_minutes || durationMin,
+        pax: data.pax || paxCount,
+        resourceId: bookingData.resourceId,
+        resourceName: bookingData.resourceName,
+        serviceId: bookingData.serviceId,
+        serviceName: bookingData.serviceName,
+        servicePrice: bookingData.servicePrice,
+        status: rawStatus,
+        notes: bookingData.notes?.trim() || '',
+        createdAt: new Date().toISOString(),
+        source: bookingData.source || 'MANUAL'
+      };
+
+      // 3. Atualizar estado React e cache apenas após confirmação do Supabase
+      setBookings(prev => [persistentBooking, ...prev]);
+
+      addOrUpdateClient({
+        name: persistentBooking.clientName,
+        phone: persistentBooking.clientPhone,
+        email: persistentBooking.clientEmail,
+        lastBookingDate: persistentBooking.date
+      });
+
+      const cached = localStorage.getItem(LOCAL_STORAGE_BOOKINGS_KEY);
+      if (cached) {
+        try {
+          const list: Booking[] = JSON.parse(cached);
+          localStorage.setItem(LOCAL_STORAGE_BOOKINGS_KEY, JSON.stringify([persistentBooking, ...list.filter(b => b.id !== persistentBooking.id)]));
+        } catch {
+          // ignore
+        }
+      }
+
+      // 4. Recarregar dados completos em segundo plano para sincronizar relacionamentos e métricas
+      loadAppointmentsFromSupabase(busId, currentEstablishment.id);
+
+      addToast('success', `Reserva #${persistentBooking.id} criada!`, `Cliente: ${persistentBooking.clientName} para ${persistentBooking.date} às ${persistentBooking.time}.`);
+
+      return { success: true, booking: persistentBooking };
+    } catch (err: any) {
+      console.error('Exceção ao chamar create_admin_appointment:', err);
+      const errorMsg = formatFriendlyError(err?.message || 'Falha inesperada ao comunicar com o servidor.');
+      addToast('error', 'Erro ao criar reserva', errorMsg);
+      return { success: false, error: errorMsg };
+    }
   };
 
   const updateBookingStatus = async (bookingId: string, status: BookingStatus) => {
@@ -1605,6 +1688,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .eq('id', parseInt(rawId, 10));
         if (error) {
           console.error('Erro ao sincronizar status do agendamento no Supabase:', error);
+        } else {
+          const busId = Number(currentEstablishment.id);
+          if (!isNaN(busId) && busId > 0) {
+            loadAppointmentsFromSupabase(busId, currentEstablishment.id);
+          }
         }
       } catch (err) {
         console.warn('Erro ao atualizar agendamento no Supabase:', err);
@@ -1623,9 +1711,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast('info', `Reserva #${bookingId}`, `Status alterado para: ${statusMap[status]}`);
   };
 
-  const updateBooking = (updated: Booking) => {
-    setBookings(prev => prev.map(b => b.id === updated.id ? updated : b));
-    addToast('success', `Reserva #${updated.id} atualizada`, 'Os dados da reserva foram atualizados.');
+  const updateBooking = async (updated: Booking): Promise<{ success: boolean; error?: string }> => {
+    const rawId = updated.id.startsWith('RZ-') ? updated.id.replace('RZ-', '') : updated.id;
+    if (!/^\d+$/.test(rawId)) {
+      const err = 'Identificador de reserva inválido para atualização.';
+      addToast('error', 'Identificador inválido', err);
+      return { success: false, error: err };
+    }
+
+    const appointmentId = parseInt(rawId, 10);
+    const formattedTime = updated.time.length === 5 ? `${updated.time}:00` : updated.time;
+
+    try {
+      const { data, error } = await supabase.rpc('update_admin_appointment', {
+        p_appointment_id: appointmentId,
+        p_date: updated.date,
+        p_time: formattedTime,
+        p_pax: updated.pax,
+        p_notes: updated.notes?.trim() || null
+      });
+
+      if (error) {
+        console.error('Erro na RPC update_admin_appointment:', error);
+        const friendlyMsg = formatFriendlyError(error.message || '');
+        addToast('error', 'Não foi possível salvar', friendlyMsg);
+        return { success: false, error: friendlyMsg };
+      }
+
+      if (!data || !data.success) {
+        const errorMsg = data?.error || 'Erro desconhecido ao salvar reserva';
+        const friendlyMsg = formatFriendlyError(errorMsg);
+        addToast('error', 'Não foi possível salvar', friendlyMsg);
+        return { success: false, error: friendlyMsg };
+      }
+
+      // SÓ atualiza setBookings após confirmação com sucesso do Supabase!
+      setBookings(prev => prev.map(b => b.id === updated.id ? {
+        ...b,
+        date: updated.date,
+        time: updated.time,
+        pax: updated.pax,
+        notes: updated.notes
+      } : b));
+
+      // Sincroniza cache local no storage
+      const cached = localStorage.getItem(LOCAL_STORAGE_BOOKINGS_KEY);
+      if (cached) {
+        try {
+          const list: Booking[] = JSON.parse(cached);
+          const updatedList = list.map(b => b.id === updated.id ? {
+            ...b,
+            date: updated.date,
+            time: updated.time,
+            pax: updated.pax,
+            notes: updated.notes
+          } : b);
+          localStorage.setItem(LOCAL_STORAGE_BOOKINGS_KEY, JSON.stringify(updatedList));
+        } catch {
+          // ignore
+        }
+      }
+
+      addToast('success', `Reserva #${updated.id} atualizada`, 'Os dados da reserva foram atualizados.');
+      return { success: true };
+    } catch (err: any) {
+      console.error('Exceção ao chamar update_admin_appointment:', err);
+      const friendlyMsg = formatFriendlyError(err?.message || 'Erro de conexão');
+      addToast('error', 'Erro ao salvar', friendlyMsg);
+      return { success: false, error: friendlyMsg };
+    }
   };
 
   const deleteBooking = async (bookingId: string) => {
@@ -1640,6 +1794,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           .eq('id', parseInt(rawId, 10));
         if (error) {
           console.error('Erro ao excluir agendamento no Supabase:', error);
+        } else {
+          const busId = Number(currentEstablishment.id);
+          if (!isNaN(busId) && busId > 0) {
+            loadAppointmentsFromSupabase(busId, currentEstablishment.id);
+          }
         }
       } catch (err) {
         console.warn('Erro ao excluir agendamento no Supabase:', err);
@@ -1650,21 +1809,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addOrUpdateClient = (clientData: Partial<Client>) => {
-    if (!clientData.phone && !clientData.name) return;
+    if (!clientData.phone && !clientData.name && !clientData.email) return;
+
+    const normPhone = normalizePhone(clientData.phone);
+    const cleanEmail = clientData.email ? clientData.email.trim().toLowerCase() : null;
 
     setClients(prev => {
-      const existingIndex = prev.findIndex(c => c.establishmentId === currentEstablishment.id && (c.phone === clientData.phone || c.email === clientData.email));
+      const existingIndex = prev.findIndex(c => {
+        if (c.establishmentId !== currentEstablishment.id) return false;
+        const cNorm = normalizePhone(c.phone) || c.phoneNormalized;
+        if (normPhone && cNorm && normPhone === cNorm) return true;
+        if (!normPhone && cleanEmail && c.email && cleanEmail === c.email.trim().toLowerCase()) return true;
+        return false;
+      });
+
       if (existingIndex >= 0) {
         const updated = [...prev];
         const current = updated[existingIndex];
         updated[existingIndex] = {
           ...current,
           name: clientData.name || current.name,
-          phone: clientData.phone || current.phone,
+          phone: current.phone,
+          phoneNormalized: current.phoneNormalized || normPhone,
           email: clientData.email || current.email,
-          totalBookings: current.totalBookings + 1,
+          totalBookings: clientData.totalBookings !== undefined ? clientData.totalBookings : current.totalBookings,
           lastBookingDate: clientData.lastBookingDate || current.lastBookingDate,
-          notes: clientData.notes !== undefined ? clientData.notes : current.notes
+          notes: clientData.notes !== undefined ? clientData.notes : current.notes,
+          isVip: clientData.isVip !== undefined ? clientData.isVip : current.isVip
         };
         return updated;
       } else {
@@ -1673,19 +1844,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           establishmentId: currentEstablishment.id,
           name: clientData.name || 'Cliente Novo',
           phone: clientData.phone || '',
+          phoneNormalized: normPhone,
           email: clientData.email || '',
-          totalBookings: 1,
-          completedBookings: 1,
-          cancelledBookings: 0,
-          noShowBookings: 0,
-          lastBookingDate: clientData.lastBookingDate || new Date().toISOString().split('T')[0],
-          isVip: false,
+          totalBookings: clientData.totalBookings !== undefined ? clientData.totalBookings : 0,
+          completedBookings: clientData.completedBookings !== undefined ? clientData.completedBookings : 0,
+          cancelledBookings: clientData.cancelledBookings !== undefined ? clientData.cancelledBookings : 0,
+          noShowBookings: clientData.noShowBookings !== undefined ? clientData.noShowBookings : 0,
+          lastBookingDate: clientData.lastBookingDate !== undefined ? clientData.lastBookingDate : null,
+          isVip: Boolean(clientData.isVip),
           notes: clientData.notes || '',
           createdAt: new Date().toISOString()
         };
         return [newClient, ...prev];
       }
     });
+  };
+
+  const updateClientProfile = async (
+    clientId: string,
+    updates: { notes?: string; isVip?: boolean }
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const rawNumericStr = clientId.startsWith('client-')
+        ? clientId.replace('client-', '')
+        : clientId;
+      const numericId = parseInt(rawNumericStr, 10);
+
+      if (isNaN(numericId)) {
+        return { success: false, error: 'Identificador de cliente inválido.' };
+      }
+
+      const payload: { notes?: string; is_vip?: boolean } = {};
+      if (updates.notes !== undefined) payload.notes = updates.notes;
+      if (updates.isVip !== undefined) payload.is_vip = updates.isVip;
+
+      const { data, error } = await supabase
+        .from('customers')
+        .update(payload)
+        .eq('id', numericId)
+        .select();
+
+      if (error) {
+        console.error('Erro ao atualizar perfil do cliente no Supabase:', error);
+        addToast('error', 'Erro ao salvar cliente', error.message || 'Falha ao comunicar com o servidor.');
+        return { success: false, error: error.message };
+      }
+
+      if (!data || data.length === 0) {
+        const errorMsg = 'Cliente não encontrado ou sem permissão para alteração.';
+        console.error(errorMsg);
+        addToast('error', 'Erro ao salvar cliente', errorMsg);
+        return { success: false, error: errorMsg };
+      }
+
+      // Update in local state only upon successful Supabase persistence
+      setClients(prev => {
+        const next = prev.map(c => {
+          if (c.id === clientId) {
+            return {
+              ...c,
+              ...(updates.notes !== undefined ? { notes: updates.notes } : {}),
+              ...(updates.isVip !== undefined ? { isVip: updates.isVip } : {})
+            };
+          }
+          return c;
+        });
+        try {
+          localStorage.setItem(LOCAL_STORAGE_CLIENTS_KEY, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      addToast('success', 'Perfil salvo', 'As informações do cliente foram atualizadas com sucesso.');
+      return { success: true };
+    } catch (err: any) {
+      console.error('Erro inesperado ao atualizar perfil do cliente:', err);
+      const msg = err.message || 'Erro inesperado ao atualizar cliente.';
+      addToast('error', 'Erro ao salvar cliente', msg);
+      return { success: false, error: msg };
+    }
   };
 
   // Adaptable terminology helper functions
@@ -1776,6 +2013,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       clients,
       addOrUpdateClient,
+      updateClientProfile,
 
       activeView,
       setActiveView,

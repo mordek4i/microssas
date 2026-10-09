@@ -171,7 +171,7 @@ export const ClientsList: React.FC<ClientsListProps> = ({ onOpenClientDetail }) 
               </div>
 
               {/* Stats Bar */}
-              <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-center text-xs">
+              <div className="grid grid-cols-4 gap-1.5 p-2 rounded-xl bg-slate-50 border border-slate-100 text-center text-xs">
                 <div>
                   <span className="block text-[10px] font-bold text-slate-400">Total</span>
                   <span className="font-extrabold text-slate-900 text-sm">{client.totalBookings}</span>
@@ -181,8 +181,12 @@ export const ClientsList: React.FC<ClientsListProps> = ({ onOpenClientDetail }) 
                   <span className="font-extrabold text-emerald-600 text-sm">{client.completedBookings}</span>
                 </div>
                 <div>
-                  <span className="block text-[10px] font-bold text-slate-400">Cancel / No-Show</span>
-                  <span className="font-extrabold text-rose-600 text-sm">{client.cancelledBookings + client.noShowBookings}</span>
+                  <span className="block text-[10px] font-bold text-slate-400">Canceladas</span>
+                  <span className="font-extrabold text-rose-600 text-sm">{client.cancelledBookings}</span>
+                </div>
+                <div>
+                  <span className="block text-[10px] font-bold text-slate-400">No-Show</span>
+                  <span className="font-extrabold text-slate-600 text-sm">{client.noShowBookings}</span>
                 </div>
               </div>
 
@@ -190,7 +194,7 @@ export const ClientsList: React.FC<ClientsListProps> = ({ onOpenClientDetail }) 
               <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100">
                 <span className="flex items-center gap-1 text-[11px]">
                   <Calendar className="w-3 h-3 text-slate-400" />
-                  Última reserva: <strong className="text-slate-700 font-semibold">{client.lastBookingDate}</strong>
+                  Última reserva: <strong className="text-slate-700 font-semibold">{client.lastBookingDate ? client.lastBookingDate : 'Nenhuma'}</strong>
                 </span>
 
                 <span className="text-[11px] font-bold text-teal-700 group-hover:underline">Ver Histórico →</span>
