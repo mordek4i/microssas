@@ -18,6 +18,7 @@ import { AuthScreen } from './components/auth/AuthScreen';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { CheckoutPendingScreen } from './components/subscription/CheckoutPendingScreen';
 import { SubscriptionBlockedScreen } from './components/subscription/SubscriptionBlockedScreen';
+import { PlansModal } from './components/subscription/PlansModal';
 import { Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -33,7 +34,9 @@ const AppContent: React.FC = () => {
     onPaymentConfirmed,
     logout,
     completeOnboarding,
-    refreshSubscriptionStatus
+    refreshSubscriptionStatus,
+    isPlansModalOpen,
+    closePlansModal
   } = useApp();
 
   // Auth modal states
@@ -253,6 +256,24 @@ const AppContent: React.FC = () => {
         clientId={detailClientId}
         isOpen={!!detailClientId}
         onClose={() => setDetailClientId(null)}
+      />
+
+      <PlansModal
+        isOpen={isPlansModalOpen}
+        onClose={closePlansModal}
+        user={currentUser}
+        trialDaysLeft={
+          (() => {
+            const sub = currentUser?.subscription;
+            const isLegacy = (sub?.plan === 'trial_7_dias' || sub?.plan === 'trial_3_dias') && sub?.status === 'active' && !sub?.cakto_order_id && !sub?.cakto_subscription_id && !sub?.id;
+            const isTrial = (isLegacy ? 'trialing' : sub?.status) === 'trialing';
+            if (!isTrial) return undefined;
+            const exp = sub?.expires_at || sub?.trial_ends_at;
+            if (!exp) return 3;
+            const ms = new Date(exp).getTime() - Date.now();
+            return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+          })()
+        }
       />
 
       {/* Toast Notifications */}

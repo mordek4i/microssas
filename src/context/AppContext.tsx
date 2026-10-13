@@ -82,6 +82,11 @@ interface AppContextType {
   dismissFirstAccess: () => void;
   refreshSubscriptionStatus: () => Promise<void>;
 
+  // Plans Modal
+  isPlansModalOpen: boolean;
+  openPlansModal: () => void;
+  closePlansModal: () => void;
+
   // Domain terms based on business type
   getResourceTerm: (plural?: boolean) => string;
   getServiceTerm: (plural?: boolean) => string;
@@ -113,6 +118,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
   const [isFirstAccess, setIsFirstAccess] = useState<boolean>(false);
+  const [isPlansModalOpen, setIsPlansModalOpen] = useState<boolean>(false);
+  const openPlansModal = () => setIsPlansModalOpen(true);
+  const closePlansModal = () => setIsPlansModalOpen(false);
 
   // Establishments state - strictly user scoped (one establishment per user)
   const [establishments, setEstablishments] = useState<Establishment[]>(() => {
@@ -2044,6 +2052,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       goToLanding,
       dismissFirstAccess,
       refreshSubscriptionStatus,
+
+      isPlansModalOpen,
+      openPlansModal,
+      closePlansModal,
 
       getResourceTerm,
       getServiceTerm,

@@ -7,7 +7,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onOpenNewBookingModal }) => {
-  const { currentEstablishment, activeView, setPublicSlug, currentUser } = useApp();
+  const { currentEstablishment, activeView, setPublicSlug, currentUser, openPlansModal } = useApp();
   const [copied, setCopied] = useState(false);
 
   const sub = currentUser?.subscription;
@@ -50,22 +50,26 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNewBookingModal }) => {
         </div>
 
         {isTrial ? (
-          <a
-            href="https://pay.cakto.com.br/rteo4xn"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-extrabold hover:bg-amber-100 transition-colors"
-            title="Clique para assinar seu plano definitivo na Cakto"
+          <button
+            type="button"
+            onClick={openPlansModal}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-extrabold hover:bg-amber-100 hover:border-amber-300 transition-all cursor-pointer active:scale-95 shadow-2xs"
+            title="Clique para ver todos os planos disponíveis para assinar"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
             <span>Período de teste: {trialDaysLeft} {trialDaysLeft === 1 ? 'dia' : 'dias'}</span>
-            <span className="bg-amber-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ml-0.5">Assinar</span>
-          </a>
+            <span className="bg-amber-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ml-0.5 shadow-2xs">Assinar</span>
+          </button>
         ) : (
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <button
+            type="button"
+            onClick={openPlansModal}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold hover:bg-emerald-100 transition-colors cursor-pointer"
+            title="Ver planos de assinatura"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
             <span>Sistema Ativo</span>
-          </div>
+          </button>
         )}
       </div>
 
