@@ -11,10 +11,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNewBookingModal }) => {
   const [copied, setCopied] = useState(false);
 
   const sub = currentUser?.subscription;
-  const isLegacyTrialCache = sub?.plan === 'trial_7_dias' && sub?.status === 'active' && !sub?.cakto_order_id && !sub?.cakto_subscription_id && !sub?.id;
+  const isLegacyTrialCache = (sub?.plan === 'trial_7_dias' || sub?.plan === 'trial_3_dias') && sub?.status === 'active' && !sub?.cakto_order_id && !sub?.cakto_subscription_id && !sub?.id;
   const currentStatus = isLegacyTrialCache ? 'trialing' : sub?.status;
   const isTrial = currentStatus === 'trialing';
-  let trialDaysLeft = 7;
+  let trialDaysLeft = 3;
   const trialExpiration = sub?.expires_at || sub?.trial_ends_at;
   if (isTrial && trialExpiration) {
     const msLeft = new Date(trialExpiration).getTime() - Date.now();

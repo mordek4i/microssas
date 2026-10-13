@@ -131,16 +131,16 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     password_hash: passwordHash
   });
 
-  // Calculate 7 days free trial
+  // Calculate 3 days free trial
   const now = new Date();
-  const trialEndsDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const trialEndsDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-  // Create initial subscription with 7-day free trial!
+  // Create initial subscription with 3-day free trial!
   const newSub = createSubscription({
     id: `sub_${crypto.randomUUID()}`,
     user_id: newUser.id,
     status: 'trialing',
-    plan: 'trial_7_dias',
+    plan: 'trial_3_dias',
     amount: 97.00,
     started_at: now.toISOString(),
     trial_ends_at: trialEndsDate.toISOString(),
@@ -187,7 +187,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 
   let subscription = getSubscriptionByUserId(user.id);
 
-  // Check if 7 days free trial has expired
+  // Check if 3 days free trial has expired
   if (subscription && subscription.status === 'trialing' && subscription.trial_ends_at) {
     if (new Date() > new Date(subscription.trial_ends_at)) {
       updateSubscription(user.id, { status: 'pending_payment' });

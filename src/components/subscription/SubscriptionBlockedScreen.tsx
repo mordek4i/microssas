@@ -226,9 +226,9 @@ export const SubscriptionBlockedScreen: React.FC<SubscriptionBlockedScreenProps>
               >
                 {/* Visual Highlights Badges */}
                 {plan.badge && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 flex justify-center w-max max-w-[90%] z-10">
                     <span
-                      className={`px-3.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider shadow-xs ${
+                      className={`px-3.5 py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider shadow-xs whitespace-nowrap inline-flex items-center justify-center ${
                         plan.highlight
                           ? 'bg-emerald-600 text-white'
                           : 'bg-amber-100 text-amber-900 border border-amber-300'

@@ -722,26 +722,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({ slug, onBa
 
   return (
     <div className="min-h-screen bg-[#f8f8f6] text-slate-900 antialiased pb-20">
-      {/* Top Banner (If in preview mode from owner dashboard) */}
-      {onBackToDashboard && (
-        <div className="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between text-xs sticky top-0 z-50 shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="font-semibold">Modo de Visualização Pública</span>
-            <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-emerald-300 font-mono">
-              /reservar/{business.slug}
-            </span>
-          </div>
-
-          <button
-            onClick={onBackToDashboard}
-            className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Voltar ao Painel</span>
-          </button>
-        </div>
-      )}
 
       {/* Main Container */}
       <div className="max-w-xl mx-auto px-4 pt-6 space-y-6">

@@ -15,7 +15,7 @@
   - Status em tempo real: Pendente, Confirmada, Em Atendimento, Concluída, Cancelada e No-Show.
 - **Integração de Pagamentos com Cakto**:
   - Webhooks com validação de assinatura secreta e idempotência.
-  - Período de teste de 7 dias grátis (*trial*).
+  - Período de teste de 3 dias grátis (*trial*).
   - Gestão automática de status da assinatura (`active`, `pending_payment`, `canceled`, `refunded`).
 - **Configuração Guiada**: Onboarding intuitivo com capacidade, intervalo entre atendimentos, termos personalizados e políticas de cancelamento.
 

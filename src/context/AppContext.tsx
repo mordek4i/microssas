@@ -102,8 +102,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!saved) return null;
     try {
       const parsed: UserProfile = JSON.parse(saved);
-      // Legacy cache cleanup: if cached subscription had plan 'trial_7_dias' and status 'active' without Cakto payment, normalize to 'trialing'
-      if (parsed.subscription?.plan === 'trial_7_dias' && parsed.subscription?.status === 'active' && !parsed.subscription?.cakto_order_id && !parsed.subscription?.cakto_subscription_id) {
+      // Legacy cache cleanup: if cached subscription had plan 'trial_7_dias' or 'trial_3_dias' and status 'active' without Cakto payment, normalize to 'trialing'
+      if ((parsed.subscription?.plan === 'trial_7_dias' || parsed.subscription?.plan === 'trial_3_dias') && parsed.subscription?.status === 'active' && !parsed.subscription?.cakto_order_id && !parsed.subscription?.cakto_subscription_id) {
         parsed.subscription.status = 'trialing';
         localStorage.setItem('reservazen_user_session_v3', JSON.stringify(parsed));
       }
@@ -881,9 +881,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     let subStatus: SubscriptionStatus = (subData?.status as SubscriptionStatus) || 'trialing';
-    const subPlan = subData?.plan || 'trial_7_dias';
+    const subPlan = subData?.plan || 'trial_3_dias';
     const startedAt = subData?.started_at || new Date().toISOString();
-    const expiresAt = subData?.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = subData?.expires_at || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
     const amount = subData?.amount ? Number(subData.amount) : 97.0;
 
     // Check trial expiration
@@ -980,7 +980,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (rawSaved) {
           try {
             const parsedSaved = JSON.parse(rawSaved);
-            if (parsedSaved?.subscription?.plan === 'trial_7_dias' && parsedSaved?.subscription?.status === 'active' && !parsedSaved?.subscription?.cakto_order_id && !parsedSaved?.subscription?.cakto_subscription_id) {
+            if ((parsedSaved?.subscription?.plan === 'trial_7_dias' || parsedSaved?.subscription?.plan === 'trial_3_dias') && parsedSaved?.subscription?.status === 'active' && !parsedSaved?.subscription?.cakto_order_id && !parsedSaved?.subscription?.cakto_subscription_id) {
               parsedSaved.subscription.status = 'trialing';
               localStorage.setItem('reservazen_user_session_v3', JSON.stringify(parsedSaved));
             }
@@ -1079,14 +1079,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const user = data.user;
     if (!user) throw new Error('Falha ao registrar usuário.');
 
-    const trialEndsDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const trialEndsDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
     const profile: UserProfile = {
       id: user.id,
       name: cleanName,
       email: user.email || cleanEmail,
       subscription: {
         status: 'trialing',
-        plan: 'trial_7_dias',
+        plan: 'trial_3_dias',
         amount: 97.0,
         started_at: new Date().toISOString(),
         trial_ends_at: trialEndsDate,
