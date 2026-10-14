@@ -14,7 +14,7 @@ import { SettingsView } from './components/settings/SettingsView';
 import { PublicBookingPage } from './components/public/PublicBookingPage';
 import { NotificationToastContainer } from './components/common/NotificationToast';
 import { LandingPage } from './components/landing/LandingPage';
-import { AuthScreen } from './components/auth/AuthScreen';
+import { AuthScreen, type AuthScreenMode } from './components/auth/AuthScreen';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { CheckoutPendingScreen } from './components/subscription/CheckoutPendingScreen';
 import { SubscriptionBlockedScreen } from './components/subscription/SubscriptionBlockedScreen';
@@ -24,6 +24,9 @@ import { Loader2 } from 'lucide-react';
 const AppContent: React.FC = () => {
   const { 
     isInitializingAuth,
+    isPasswordRecovery,
+    requestPasswordReset,
+    resetPassword,
     activeView, 
     publicSlug, 
     setPublicSlug, 
@@ -41,7 +44,7 @@ const AppContent: React.FC = () => {
 
   // Auth modal states
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
+  const [authMode, setAuthMode] = useState<AuthScreenMode>('signup');
 
   // Booking & Client Modals
   const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
@@ -99,6 +102,29 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // 2.5 PASSWORD RECOVERY STATE (Absolute priority over standard app navigation)
+  if (isPasswordRecovery) {
+    return (
+      <>
+        <AuthScreen
+          initialMode="reset_password"
+          onBackToHome={() => {
+            logout();
+          }}
+          onSuccessSignup={async (name, email, password) => {
+            await startSignup(name, email, password);
+          }}
+          onSuccessLogin={async (email, password) => {
+            await startLogin(email, password);
+          }}
+          onRequestPasswordReset={requestPasswordReset}
+          onResetPassword={resetPassword}
+        />
+        <NotificationToastContainer />
+      </>
+    );
+  }
+
   // 3. LANDING PAGE & AUTH STATE
   if (appFlowState === 'LANDING') {
     if (isAuthModalOpen) {
@@ -115,6 +141,8 @@ const AppContent: React.FC = () => {
               await startLogin(email, password);
               setIsAuthModalOpen(false);
             }}
+            onRequestPasswordReset={requestPasswordReset}
+            onResetPassword={resetPassword}
           />
           <NotificationToastContainer />
         </>

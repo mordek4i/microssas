@@ -88,6 +88,12 @@ interface AppContextType {
   goToLanding: () => void;
   dismissFirstAccess: () => void;
   refreshSubscriptionStatus: () => Promise<void>;
+  
+  // Password Recovery Flow
+  isPasswordRecovery: boolean;
+  setIsPasswordRecovery: (isRecovery: boolean) => void;
+  requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
 
   // Plans Modal
   isPlansModalOpen: boolean;
@@ -109,6 +115,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // App Flow & User Auth
   const [isInitializingAuth, setIsInitializingAuth] = useState<boolean>(true);
   const [appFlowState, setAppFlowState] = useState<AppFlowState>('LANDING');
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(false);
+  const isPasswordRecoveryRef = useRef<boolean>(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('reservazen_user_session_v3');
     if (!saved) return null;
@@ -990,8 +998,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     let isMounted = true;
 
+    // 1. Detectar erros retornados pelo Supabase Auth na URL (ex: link expirado ou já utilizado)
+    if (typeof window !== 'undefined') {
+      const hashStr = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+      const hashParams = new URLSearchParams(hashStr);
+      const searchParams = new URLSearchParams(window.location.search);
+      const errorCode = hashParams.get('error_code') || searchParams.get('error_code');
+      const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
+
+      if (errorCode || errorDesc) {
+        console.warn('[Auth] Erro detectado nos parâmetros de URL do Supabase Auth:', { errorCode, errorDesc });
+        if (errorCode === 'otp_expired' || errorDesc?.includes('expired') || errorDesc?.includes('invalid')) {
+          addToast('error', 'Link expirado ou já utilizado', 'O link de recuperação de senha expirou ou já foi utilizado. Solicite um novo link abaixo.');
+        } else if (errorDesc) {
+          addToast('error', 'Falha na autenticação', decodeURIComponent(errorDesc.replace(/\+/g, ' ')));
+        }
+        // Limpar parâmetros de erro da URL
+        window.history.replaceState({}, document.title, window.location.pathname === '/reset-password' ? '/' : window.location.pathname);
+      }
+    }
+
+    // 2. Registrar listener de autenticação com prioridade MÁXIMA para PASSWORD_RECOVERY
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+
+      console.log('[Auth] Evento de autenticação detectado:', event);
+
+      // Prioridade absoluta: evento PASSWORD_RECOVERY do Supabase Auth
+      if (event === 'PASSWORD_RECOVERY') {
+        console.log('[Auth] Evento PASSWORD_RECOVERY validado pelo Supabase Auth! Bloqueando redirecionamento para o Dashboard.');
+        isPasswordRecoveryRef.current = true;
+        setIsPasswordRecovery(true);
+        setAppFlowState('LANDING');
+        return;
+      }
+
+      // Se o usuário estiver no fluxo de recuperação validado, não processar SIGNED_IN que o levaria ao APP
+      if (isPasswordRecoveryRef.current) {
+        return;
+      }
+
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        if (session.access_token) {
+          console.log('[Realtime] Atualizando setAuth após evento de autenticação:', event);
+          await supabase.realtime.setAuth(session.access_token);
+        }
+        await syncUserWithSupabase(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        await supabase.realtime.setAuth(null);
+        setCurrentUser(null);
+        localStorage.removeItem('reservazen_user_session_v3');
+        setAppFlowState('LANDING');
+      }
+    });
+
     const initAuth = async () => {
       try {
+        // Se o listener já interceptou o PASSWORD_RECOVERY, abortar initAuth normal
+        if (isPasswordRecoveryRef.current) {
+          console.log('[Auth] Recuperação de senha já interceptada pelo listener. Abortando syncUserWithSupabase.');
+          return;
+        }
+
         // Purge old contaminated shared storage keys
         localStorage.removeItem('reservazen_establishments_v2');
         localStorage.removeItem('reservazen_establishments_v3');
@@ -1011,6 +1079,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         const { data: { session } } = await supabase.auth.getSession();
+
+        // Verificação rigorosa de fluxo de recuperação de senha no carregamento inicial:
+        // Exige validação dupla: sessão com usuário ativo E presença de parâmetros de recuperação comprovados
+        const hasRecoveryMarker = 
+          window.location.hash.includes('type=recovery') || 
+          new URLSearchParams(window.location.search).get('type') === 'recovery' || 
+          (window.location.pathname === '/reset-password' && (window.location.hash.includes('access_token') || new URLSearchParams(window.location.search).has('code')));
+
+        if (session?.user && hasRecoveryMarker && isMounted) {
+          console.log('[Auth] Sessão de recuperação detectada no carregamento inicial. Priorizando redefinição de senha.');
+          isPasswordRecoveryRef.current = true;
+          setIsPasswordRecovery(true);
+          setAppFlowState('LANDING');
+          return;
+        }
+
+        // Se uma sessão comum for detectada na rota /reset-password SEM parâmetros de recuperação, limpar rota
+        if (window.location.pathname === '/reset-password' && !hasRecoveryMarker) {
+          console.log('[Auth] Acesso a /reset-password sem token de recuperação. Normalizando URL.');
+          window.history.replaceState({}, document.title, '/');
+        }
+
         if (session?.user && isMounted) {
           if (session.access_token) {
             console.log('[Realtime] Aplicando setAuth na restauração da sessão...');
@@ -1020,7 +1110,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           await syncUserWithSupabase(session.user);
         } else if (isMounted) {
           // If NO valid Supabase session exists, DO NOT grant access to the dashboard (APP) based only on localStorage!
-          // LocalStorage is never proof of a valid subscription or session.
           await supabase.realtime.setAuth(null);
           setCurrentUser(null);
           localStorage.removeItem('reservazen_user_session_v3');
@@ -1040,24 +1129,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     initAuth();
-
-    // Real-time auth listener for session persistence across page refreshes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!isMounted) return;
-
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
-        if (session.access_token) {
-          console.log('[Realtime] Atualizando setAuth após evento de autenticação:', event);
-          await supabase.realtime.setAuth(session.access_token);
-        }
-        await syncUserWithSupabase(session.user);
-      } else if (event === 'SIGNED_OUT') {
-        await supabase.realtime.setAuth(null);
-        setCurrentUser(null);
-        localStorage.removeItem('reservazen_user_session_v3');
-        setAppFlowState('LANDING');
-      }
-    });
 
     return () => {
       isMounted = false;
@@ -1409,6 +1480,95 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentEstablishmentId(INITIAL_ESTABLISHMENTS[0]?.id || 'est-bistro');
     setAppFlowState('LANDING');
     addToast('info', 'Você saiu da sua conta.', 'Até breve!');
+  };
+
+  // Password Recovery Actions with Supabase Auth
+  const requestPasswordReset = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, error: 'Por favor, informe seu e-mail cadastrado.' };
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return { success: false, error: 'Por favor, informe um formato de e-mail válido.' };
+    }
+
+    // Dynamic redirect URL using /reset-password route
+    const redirectUrl = `${window.location.origin}/reset-password`;
+
+    try {
+      console.log('[Auth] Solicitando link de recuperação para:', cleanEmail, 'com redirectTo:', redirectUrl);
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: redirectUrl
+      });
+
+      if (error) {
+        console.error('[Auth] Erro ao solicitar recuperação de senha no Supabase:', error);
+        let friendlyMsg = error.message;
+        if (error.message.includes('rate limit') || error.message.includes('over_email_send_rate_limit')) {
+          friendlyMsg = 'Muitas solicitações enviadas recentemente. Aguarde alguns minutos antes de tentar novamente.';
+        }
+        return { success: false, error: friendlyMsg };
+      }
+
+      addToast('info', 'E-mail enviado! 📬', 'Verifique sua caixa de entrada para redefinir sua senha.');
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Auth] Exceção ao solicitar recuperação:', err);
+      return { success: false, error: err?.message || 'Falha de conexão. Tente novamente mais tarde.' };
+    }
+  };
+
+  const resetPassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    const cleanPass = newPassword.trim();
+    if (!cleanPass) {
+      return { success: false, error: 'Por favor, digite sua nova senha.' };
+    }
+    if (cleanPass.length < 6) {
+      return { success: false, error: 'A nova senha deve ter no mínimo 6 caracteres.' };
+    }
+
+    try {
+      console.log('[Auth] Atualizando senha do usuário autenticado pela recuperação...');
+      const { data, error } = await supabase.auth.updateUser({
+        password: cleanPass
+      });
+
+      if (error) {
+        console.error('[Auth] Erro ao redefinir senha no Supabase:', error);
+        let friendlyMsg = error.message;
+        if (error.message.includes('same as the old password') || error.message.includes('same_password')) {
+          friendlyMsg = 'A nova senha não pode ser igual à senha anterior.';
+        } else if (error.message.includes('Auth session missing') || error.message.includes('session_missing')) {
+          friendlyMsg = 'Sua sessão de recuperação expirou. Por favor, solicite um novo link.';
+        } else if (error.message.includes('Password should be at least')) {
+          friendlyMsg = 'A nova senha deve ter no mínimo 6 caracteres.';
+        }
+        return { success: false, error: friendlyMsg };
+      }
+
+      console.log('[Auth] Senha atualizada com sucesso para o usuário:', data.user?.id);
+
+      // Limpa parâmetros de recuperação da URL do navegador
+      if (typeof window !== 'undefined') {
+        const cleanPath = window.location.pathname === '/reset-password' ? '/' : window.location.pathname;
+        window.history.replaceState({}, document.title, cleanPath);
+      }
+
+      // Encerra a sessão temporária de recuperação para que o usuário faça login normalmente com a nova senha
+      await supabase.auth.signOut();
+      isPasswordRecoveryRef.current = false;
+      setIsPasswordRecovery(false);
+      setCurrentUser(null);
+      localStorage.removeItem('reservazen_user_session_v3');
+      setAppFlowState('LANDING');
+
+      addToast('success', 'Senha redefinida com sucesso! 🎉', 'Você já pode entrar na sua conta com a nova senha.');
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Auth] Exceção ao redefinir senha:', err);
+      return { success: false, error: err?.message || 'Erro inesperado ao redefinir senha. Tente novamente.' };
+    }
   };
 
   const refreshSubscriptionStatus = async () => {
@@ -2301,6 +2461,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       goToLanding,
       dismissFirstAccess,
       refreshSubscriptionStatus,
+
+      isPasswordRecovery,
+      setIsPasswordRecovery,
+      requestPasswordReset,
+      resetPassword,
 
       isPlansModalOpen,
       openPlansModal,
