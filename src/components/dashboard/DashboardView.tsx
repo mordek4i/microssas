@@ -29,6 +29,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   const { 
     filteredBookings, 
+    establishmentBookings,
     setActiveView, 
     currentEstablishment, 
     getResourceTerm, 
@@ -39,6 +40,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     dateFilter,
     setDateFilter
   } = useApp();
+
+  // [Realtime:7] Log de renderização com métricas atualizadas
+  React.useEffect(() => {
+    console.log(`[Realtime:7] Dashboard renderizado com ${filteredBookings.length} bookings no filtro '${dateFilter}' (Total do negócio: ${establishmentBookings.length})`);
+  }, [filteredBookings.length, dateFilter, establishmentBookings.length]);
 
   // Quantidades reais baseadas no período selecionado
   const totalReservas = filteredBookings.length;
@@ -171,9 +177,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
 
-        <span className="text-[11px] font-semibold text-slate-500 px-2">
-          {totalReservas} {totalReservas === 1 ? 'registro encontrado' : 'registros encontrados'}
-        </span>
+        <div className="flex items-center gap-2">
+          {dateFilter === 'today' && establishmentBookings.filter(b => b.date > new Date().toLocaleDateString('en-CA') && b.status !== 'CANCELLED').length > 0 && (
+            <button
+              onClick={() => setDateFilter('week')}
+              className="text-[11px] font-extrabold text-teal-800 hover:text-teal-950 bg-teal-50 hover:bg-teal-100/90 border border-teal-200/90 px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
+              title="Clique para ver agendamentos dos próximos dias"
+            >
+              <span>+{establishmentBookings.filter(b => b.date > new Date().toLocaleDateString('en-CA') && b.status !== 'CANCELLED').length} agendamento(s) a partir de amanhã</span>
+              <span className="text-teal-600 font-black">→</span>
+            </button>
+          )}
+          <span className="text-[11px] font-semibold text-slate-500 px-2">
+            {totalReservas} {totalReservas === 1 ? 'registro encontrado' : 'registros encontrados'}
+          </span>
+        </div>
       </div>
 
       {/* Top Banner Overview */}

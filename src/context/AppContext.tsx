@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { 
   Establishment, 
   Booking, 
@@ -29,6 +29,8 @@ interface ToastMessage {
 
 export type AppFlowState = 'LANDING' | 'CHECKOUT_PENDING' | 'BLOCKED_SUBSCRIPTION' | 'ONBOARDING' | 'APP';
 
+export type RealtimeSyncStatus = 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED' | 'ERROR';
+
 import type { UserProfile } from '../types';
 
 interface AppContextType {
@@ -41,6 +43,7 @@ interface AppContextType {
   removeEstablishmentImage: (type: 'logo' | 'cover') => Promise<void>;
   
   bookings: Booking[];
+  establishmentBookings: Booking[];
   filteredBookings: Booking[];
   addBooking: (bookingData: Partial<Booking>) => Promise<{ success: boolean; booking?: Booking; error?: string }>;
   updateBookingStatus: (bookingId: string, status: BookingStatus) => void;
@@ -67,6 +70,10 @@ interface AppContextType {
 
   publicSlug?: string;
   setPublicSlug: (slug?: string) => void;
+
+  // Realtime subscription status and manual sync trigger
+  realtimeStatus: RealtimeSyncStatus;
+  refreshAppointments: () => Promise<void>;
 
   // Flow & Auth states with Cakto integration
   isInitializingAuth: boolean;
@@ -197,6 +204,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Toasts notification
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Supabase Realtime synchronization state and tracking refs
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeSyncStatus>('DISCONNECTED');
+  const recentLocalActionRef = useRef<Set<number>>(new Set());
+  const refetchDebounceRef = useRef<NodeJS.Timeout | null>(null);
 
   // Public booking page simulator
   const [publicSlug, setPublicSlug] = useState<string | undefined>(() => {
@@ -701,6 +713,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Load real appointments and customers from Supabase for the active business
   const loadAppointmentsFromSupabase = async (businessId: number, estIdStr: string) => {
     try {
+      console.log(`[Realtime:4] Busca de dados iniciada para business_id = ${businessId}`);
       const { data: appData, error: appErr } = await supabase
         .from('appointments')
         .select(`
@@ -725,8 +738,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .order('start_time', { ascending: false });
 
       if (appErr) {
-        console.error('Erro ao buscar agendamentos do Supabase:', appErr);
+        console.error('[Realtime] Erro ao buscar agendamentos do Supabase:', appErr);
       } else if (appData) {
+        console.log(`[Realtime:5] Busca de dados concluída: ${appData.length} agendamentos retornados`);
         const mappedBookings: Booking[] = appData.map((a: any) => {
           const startIso = a.start_time || new Date().toISOString();
           const endIso = a.end_time || startIso;
@@ -762,6 +776,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         setBookings(mappedBookings);
+        console.log(`[Realtime:6] Estado React atualizado: ${mappedBookings.length} bookings salvos no estado`);
         localStorage.setItem(LOCAL_STORAGE_BOOKINGS_KEY, JSON.stringify(mappedBookings));
       }
 
@@ -997,11 +1012,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && isMounted) {
+          if (session.access_token) {
+            console.log('[Realtime] Aplicando setAuth na restauração da sessão...');
+            await supabase.realtime.setAuth(session.access_token);
+          }
           // Valid Supabase session exists: Supabase is the sole source of truth!
           await syncUserWithSupabase(session.user);
         } else if (isMounted) {
           // If NO valid Supabase session exists, DO NOT grant access to the dashboard (APP) based only on localStorage!
           // LocalStorage is never proof of a valid subscription or session.
+          await supabase.realtime.setAuth(null);
           setCurrentUser(null);
           localStorage.removeItem('reservazen_user_session_v3');
           setAppFlowState('LANDING');
@@ -1026,8 +1046,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!isMounted) return;
 
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        if (session.access_token) {
+          console.log('[Realtime] Atualizando setAuth após evento de autenticação:', event);
+          await supabase.realtime.setAuth(session.access_token);
+        }
         await syncUserWithSupabase(session.user);
       } else if (event === 'SIGNED_OUT') {
+        await supabase.realtime.setAuth(null);
         setCurrentUser(null);
         localStorage.removeItem('reservazen_user_session_v3');
         setAppFlowState('LANDING');
@@ -1054,6 +1079,183 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => clearInterval(interval);
   }, [currentUser?.id, currentUser?.subscription?.status, currentUser?.subscription?.expires_at, appFlowState]);
+
+  // Helper to play a gentle notification chime using Web Audio API (cross-platform, zero assets required)
+  const playChimeNotification = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      // First soft tone (D5 - 587.33 Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, now);
+      gain1.gain.setValueAtTime(0.04, now);
+      gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.18);
+
+      // Second harmonic chime (A5 - 880.00 Hz)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(880, now + 0.12);
+      gain2.gain.setValueAtTime(0.04, now + 0.12);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.12);
+      osc2.stop(now + 0.38);
+    } catch {
+      // Graceful fallback if autoplay restrictions apply or Web Audio is unavailable
+    }
+  }, []);
+
+  // Manual or programmatic refresh trigger
+  const refreshAppointments = useCallback(async () => {
+    const busId = Number(currentEstablishment?.id);
+    if (!isNaN(busId) && busId > 0) {
+      await loadAppointmentsFromSupabase(busId, currentEstablishment.id);
+    }
+  }, [currentEstablishment?.id]);
+
+  // Supabase Realtime Subscription: listens to appointments for current business
+  useEffect(() => {
+    if (!currentUser || appFlowState !== 'APP' || !currentEstablishment?.id) {
+      setRealtimeStatus('DISCONNECTED');
+      return;
+    }
+
+    const busId = Number(currentEstablishment.id);
+    if (isNaN(busId) || busId <= 0) {
+      setRealtimeStatus('DISCONNECTED');
+      return;
+    }
+
+    const channelName = `realtime_appointments_bus_${busId}`;
+    console.log(`[Realtime:1] Canal criado: nome=${channelName}, filtro="business_id=eq.${busId}"`);
+    setRealtimeStatus('CONNECTING');
+
+    const handleRealtimeChange = (payload: any) => {
+      const eventType = payload.eventType;
+      const newRecord: any = payload.new;
+      const oldRecord: any = payload.old;
+      const appointmentId = newRecord?.id ? Number(newRecord.id) : oldRecord?.id ? Number(oldRecord.id) : null;
+      const rowBusId = newRecord?.business_id ? Number(newRecord.business_id) : (oldRecord?.business_id ? Number(oldRecord.business_id) : null);
+
+      console.log(`[Realtime:3] Evento recebido no callback: eventType=${eventType}, id=${appointmentId}, business_id=${rowBusId}`);
+
+      // Validação de segurança adicional multitenant no cliente
+      if (rowBusId && rowBusId !== busId) {
+        console.warn('[Realtime] Evento descartado: business_id diferente do ativo', rowBusId, busId);
+        return;
+      }
+
+      const isLocalAction = appointmentId ? recentLocalActionRef.current.has(appointmentId) : false;
+
+      if (eventType === 'INSERT') {
+        if (!isLocalAction) {
+          console.log('[Realtime] Nova reserva recebida de cliente externo! Disparando alerta e som...');
+          playChimeNotification();
+
+          let bookingDateStr = '';
+          let bookingTimeStr = '';
+          if (newRecord?.start_time) {
+            try {
+              const d = new Date(newRecord.start_time);
+              bookingDateStr = d.toLocaleDateString('pt-BR');
+              bookingTimeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            } catch {}
+          }
+
+          addToast(
+            'info', 
+            '🎉 Nova reserva recebida!', 
+            bookingDateStr 
+              ? `Agendamento recebido para ${bookingDateStr} às ${bookingTimeStr}. Atualizando agenda...`
+              : 'Uma nova reserva foi agendada na página pública.'
+          );
+        } else {
+          console.log('[Realtime] INSERT originado localmente nesta aba. Alerta suprimido para evitar eco.');
+        }
+      } else if (eventType === 'UPDATE') {
+        if (!isLocalAction) {
+          if (newRecord?.status === 'cancelled' && oldRecord?.status !== 'cancelled') {
+            addToast('info', 'Reserva cancelada', 'O status de uma reserva foi alterado para cancelado.');
+          } else {
+            addToast('info', 'Reserva atualizada', 'Os dados de uma reserva foram alterados.');
+          }
+        }
+      } else if (eventType === 'DELETE') {
+        if (!isLocalAction) {
+          addToast('info', 'Reserva removida', 'Uma reserva foi excluída do sistema.');
+        }
+      }
+
+      // Dispara atualização atômica das reservas
+      if (refetchDebounceRef.current) {
+        clearTimeout(refetchDebounceRef.current);
+      }
+      refetchDebounceRef.current = setTimeout(() => {
+        loadAppointmentsFromSupabase(busId, currentEstablishment.id);
+      }, 100);
+    };
+
+    // Criação síncrona do canal sem race conditions de Promises assíncronas
+    const channel = supabase.channel(channelName);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `business_id=eq.${busId}`
+        },
+        handleRealtimeChange
+      )
+      .subscribe((status, err) => {
+        console.log(`[Realtime:2] Canal subscrito: status=${status}`, err ? `Erro: ${err.message || JSON.stringify(err)}` : '');
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('CONNECTED');
+          console.log('[Realtime] Canal conectado e ativo com sucesso! ✅');
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRealtimeStatus('ERROR');
+          console.error('[Realtime] Erro ao subscrever canal:', status, err);
+        } else if (status === 'CLOSED') {
+          setRealtimeStatus('DISCONNECTED');
+          console.log('[Realtime] Canal fechado.');
+        }
+      });
+
+    // Re-sync appointments whenever browser window regains focus or visibility
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[Realtime] Aba voltou ao foco/visibilidade. Sincronizando reservas...');
+        loadAppointmentsFromSupabase(busId, currentEstablishment.id);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      if (refetchDebounceRef.current) {
+        clearTimeout(refetchDebounceRef.current);
+      }
+      console.log(`[Realtime] Removendo canal: nome=${channelName}`);
+      supabase.removeChannel(channel);
+      setRealtimeStatus('DISCONNECTED');
+    };
+  }, [currentUser?.id, appFlowState, currentEstablishment?.id, playChimeNotification]);
 
   // Auth & Flow Actions with Supabase Auth
   const startSignup = async (name: string, email?: string, password?: string) => {
@@ -1162,6 +1364,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const user = data.user;
     if (!user) throw new Error('Usuário não encontrado.');
 
+    if (data.session?.access_token) {
+      console.log('[Realtime] Aplicando setAuth após login do usuário...');
+      await supabase.realtime.setAuth(data.session.access_token);
+    }
+
     await syncUserWithSupabase(user);
     addToast('success', 'Login realizado com sucesso! 👋', 'Bem-vindo de volta.');
   };
@@ -1183,6 +1390,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = async () => {
     try {
+      await supabase.realtime.setAuth(null);
       await supabase.auth.signOut();
     } catch (err) {
       console.warn('Erro ao sair da conta:', err);
@@ -1463,38 +1671,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast('info', type === 'logo' ? 'Logo removida' : 'Foto de capa removida', 'A imagem foi excluída com sucesso.');
   };
 
+  // Helper to get local YYYY-MM-DD date string independent of UTC shifts
+  const getLocalDateString = (d: Date = new Date()): string => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // All bookings for current establishment (unfiltered by date)
+  const establishmentBookings = useMemo(() => {
+    return bookings.filter(b => b.establishmentId === currentEstablishment.id);
+  }, [bookings, currentEstablishment.id]);
+
   // Filtered bookings for current establishment & current date filter
   const filteredBookings = useMemo(() => {
-    const estBookings = bookings.filter(b => b.establishmentId === currentEstablishment.id);
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString(new Date());
 
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = getLocalDateString(yesterday);
 
     if (dateFilter === 'today') {
-      return estBookings.filter(b => b.date === todayStr);
+      return establishmentBookings.filter(b => b.date === todayStr);
     }
     if (dateFilter === 'yesterday') {
-      return estBookings.filter(b => b.date === yesterdayStr);
+      return establishmentBookings.filter(b => b.date === yesterdayStr);
     }
     if (dateFilter === 'week') {
-      const curr = new Date();
-      const first = curr.getDate() - curr.getDay(); // First day is Sunday
-      const last = first + 6; // last day is Saturday
-      const firstDay = new Date(curr.setDate(first)).toISOString().split('T')[0];
-      const lastDay = new Date(curr.setDate(last)).toISOString().split('T')[0];
-      return estBookings.filter(b => b.date >= firstDay && b.date <= lastDay);
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+      const endOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (6 - dayOfWeek));
+      const firstDay = getLocalDateString(startOfWeek);
+      const lastDay = getLocalDateString(endOfWeek);
+      return establishmentBookings.filter(b => b.date >= firstDay && b.date <= lastDay);
     }
     if (dateFilter === 'month') {
       const monthPrefix = todayStr.substring(0, 7); // YYYY-MM
-      return estBookings.filter(b => b.date.startsWith(monthPrefix));
+      return establishmentBookings.filter(b => b.date.startsWith(monthPrefix));
     }
     if (dateFilter === 'custom') {
-      return estBookings.filter(b => b.date >= customStartDate && b.date <= customEndDate);
+      return establishmentBookings.filter(b => b.date >= customStartDate && b.date <= customEndDate);
     }
-    return estBookings;
-  }, [bookings, currentEstablishment.id, dateFilter, customStartDate, customEndDate]);
+    return establishmentBookings;
+  }, [establishmentBookings, dateFilter, customStartDate, customEndDate]);
 
   const formatFriendlyError = (rawError: string): string => {
     if (!rawError) return 'Erro ao processar a solicitação. Tente novamente.';
@@ -1615,6 +1836,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // 2. Montar objeto oficial com o ID definitivo retornado pelo PostgreSQL
+      if (data?.appointment_id) {
+        recentLocalActionRef.current.add(Number(data.appointment_id));
+        setTimeout(() => {
+          recentLocalActionRef.current.delete(Number(data.appointment_id));
+        }, 10000);
+      }
+
       const persistentBooking: Booking = {
         id: `RZ-${data.appointment_id}`,
         establishmentId: currentEstablishment.id,
@@ -1681,6 +1909,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // If booking corresponds to a real Supabase appointment, sync status
     const rawId = bookingId.startsWith('RZ-') ? bookingId.replace('RZ-', '') : bookingId;
     if (/^\d+$/.test(rawId)) {
+      const numId = parseInt(rawId, 10);
+      recentLocalActionRef.current.add(numId);
+      setTimeout(() => {
+        recentLocalActionRef.current.delete(numId);
+      }, 10000);
+
       const statusMapDb: Record<BookingStatus, string> = {
         PENDING: 'scheduled',
         CONFIRMED: 'confirmed',
@@ -1693,7 +1927,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const { error } = await supabase
           .from('appointments')
           .update({ status: statusMapDb[status] })
-          .eq('id', parseInt(rawId, 10));
+          .eq('id', numId);
         if (error) {
           console.error('Erro ao sincronizar status do agendamento no Supabase:', error);
         } else {
@@ -1728,6 +1962,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const appointmentId = parseInt(rawId, 10);
+    recentLocalActionRef.current.add(appointmentId);
+    setTimeout(() => {
+      recentLocalActionRef.current.delete(appointmentId);
+    }, 10000);
+
     const formattedTime = updated.time.length === 5 ? `${updated.time}:00` : updated.time;
 
     try {
@@ -1795,11 +2034,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const rawId = bookingId.startsWith('RZ-') ? bookingId.replace('RZ-', '') : bookingId;
     if (/^\d+$/.test(rawId)) {
+      const numId = parseInt(rawId, 10);
+      recentLocalActionRef.current.add(numId);
+      setTimeout(() => {
+        recentLocalActionRef.current.delete(numId);
+      }, 10000);
+
       try {
         const { error } = await supabase
           .from('appointments')
           .delete()
-          .eq('id', parseInt(rawId, 10));
+          .eq('id', numId);
         if (error) {
           console.error('Erro ao excluir agendamento no Supabase:', error);
         } else {
@@ -2013,6 +2258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       removeEstablishmentImage,
 
       bookings,
+      establishmentBookings,
       filteredBookings,
       addBooking,
       updateBookingStatus,
@@ -2039,6 +2285,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       publicSlug,
       setPublicSlug,
+
+      realtimeStatus,
+      refreshAppointments,
 
       isInitializingAuth,
       appFlowState,

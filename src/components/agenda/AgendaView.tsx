@@ -21,7 +21,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   onOpenNewBookingModal,
   onOpenBookingDetail
 }) => {
-  const { filteredBookings, currentEstablishment, getResourceTerm } = useApp();
+  const { establishmentBookings, currentEstablishment, getResourceTerm } = useApp();
 
   const [mode, setMode] = useState<AgendaMode>('day');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -38,11 +38,16 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     setSelectedDate(new Date().toISOString().split('T')[0]);
   };
 
-  const activeBookings = filteredBookings.filter(b => {
+  const activeBookings = establishmentBookings.filter(b => {
     if (selectedResourceId !== 'all' && b.resourceId !== selectedResourceId) return false;
     if (selectedStatus !== 'all' && b.status !== selectedStatus) return false;
     return true;
   });
+
+  // [Realtime:7] Log de renderização com métricas atualizadas
+  React.useEffect(() => {
+    console.log(`[Realtime:7] AgendaView renderizada com ${activeBookings.length} bookings disponíveis (Data selecionada: ${selectedDate}, Modo: ${mode})`);
+  }, [activeBookings.length, selectedDate, mode]);
 
   const timeSlots = [
     '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', 

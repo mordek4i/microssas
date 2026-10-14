@@ -20,7 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = () => {
     activeView, 
     setActiveView, 
     currentEstablishment, 
-    filteredBookings,
+    establishmentBookings,
     goToLanding,
     currentUser,
     logout
@@ -29,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = () => {
   const navItems: { id: MainView; label: string; icon: React.ElementType; count?: number }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'agenda', label: 'Agenda', icon: CalendarDays },
-    { id: 'bookings', label: 'Reservas', icon: BookCheck, count: filteredBookings.length },
+    { id: 'bookings', label: 'Reservas', icon: BookCheck, count: establishmentBookings.length },
     { id: 'clients', label: 'Clientes', icon: Users },
     { id: 'establishment', label: 'Meu estabelecimento', icon: Store },
     { id: 'settings', label: 'Configurações', icon: Settings }

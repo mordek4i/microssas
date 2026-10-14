@@ -23,23 +23,23 @@ export const BookingManagement: React.FC<BookingManagementProps> = ({
   onOpenNewBookingModal,
   onOpenBookingDetail
 }) => {
-  const { filteredBookings, updateBookingStatus, currentEstablishment } = useApp();
+  const { establishmentBookings, updateBookingStatus, currentEstablishment } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  // Count metrics for quick filter tabs
+  // Count metrics for quick filter tabs (agora abrangendo todas as reservas do negócio)
   const counts = {
-    all: filteredBookings.length,
-    PENDING: filteredBookings.filter(b => b.status === 'PENDING').length,
-    CONFIRMED: filteredBookings.filter(b => b.status === 'CONFIRMED').length,
-    IN_SERVICE: filteredBookings.filter(b => b.status === 'IN_SERVICE').length,
-    COMPLETED: filteredBookings.filter(b => b.status === 'COMPLETED').length,
-    CANCELLED: filteredBookings.filter(b => b.status === 'CANCELLED' || b.status === 'NO_SHOW').length,
+    all: establishmentBookings.length,
+    PENDING: establishmentBookings.filter(b => b.status === 'PENDING').length,
+    CONFIRMED: establishmentBookings.filter(b => b.status === 'CONFIRMED').length,
+    IN_SERVICE: establishmentBookings.filter(b => b.status === 'IN_SERVICE').length,
+    COMPLETED: establishmentBookings.filter(b => b.status === 'COMPLETED').length,
+    CANCELLED: establishmentBookings.filter(b => b.status === 'CANCELLED' || b.status === 'NO_SHOW').length,
   };
 
   // Search & filter logic
-  const displayedBookings = filteredBookings.filter(b => {
+  const displayedBookings = establishmentBookings.filter(b => {
     const matchesSearch = 
       b.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       b.clientPhone.includes(searchTerm) ||
@@ -55,6 +55,11 @@ export const BookingManagement: React.FC<BookingManagementProps> = ({
 
     return matchesSearch && matchesStatus;
   });
+
+  // [Realtime:7] Log de renderização com métricas atualizadas
+  React.useEffect(() => {
+    console.log(`[Realtime:7] BookingManagement renderizado com ${displayedBookings.length} bookings exibidos (Status ativo: '${statusFilter}', Total geral: ${establishmentBookings.length})`);
+  }, [displayedBookings.length, statusFilter, establishmentBookings.length]);
 
   const getWhatsAppLink = (phone: string, clientName: string, date: string, time: string) => {
     const cleanPhone = phone.replace(/\D/g, '');

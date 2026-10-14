@@ -6,7 +6,7 @@ import {
 import { Clock, TrendingUp, Users, PieChart as PieIcon, Calendar } from 'lucide-react';
 
 export const ChartsSection: React.FC = () => {
-  const { filteredBookings, currentEstablishment, getResourceTerm } = useApp();
+  const { filteredBookings, establishmentBookings, currentEstablishment, getResourceTerm } = useApp();
 
   // -------------------------------------------------------------
   // 1. CHART: EVOLUÇÃO DAS RESERVAS POR DIA (Semana Atual)
@@ -31,7 +31,7 @@ export const ChartsSection: React.FC = () => {
       const dayFormatted = `${String(dayDate.getDate()).padStart(2, '0')}/${String(dayDate.getMonth() + 1).padStart(2, '0')}`;
 
       // Filtrar reservas reais deste dia para o estabelecimento atual
-      const dayBookings = filteredBookings.filter(b => b.date === dateIso);
+      const dayBookings = establishmentBookings.filter(b => b.date === dateIso);
       const reservas = dayBookings.length;
       const clientes = dayBookings.reduce((sum, b) => sum + (b.pax || 1), 0);
 
@@ -42,7 +42,7 @@ export const ChartsSection: React.FC = () => {
         clientes
       };
     });
-  }, [filteredBookings]);
+  }, [establishmentBookings]);
 
   // -------------------------------------------------------------
   // 2. CHART: HORÁRIOS DE MAIOR MOVIMENTO (Pico Real)
@@ -60,7 +60,7 @@ export const ChartsSection: React.FC = () => {
       hourMap[h] = { reservas: 0, pax: 0 };
     });
 
-    filteredBookings.forEach(b => {
+    establishmentBookings.forEach(b => {
       const timePrefix = b.time ? b.time.substring(0, 2) + ':00' : '19:00';
       if (!hourMap[timePrefix]) {
         hourMap[timePrefix] = { reservas: 0, pax: 0 };
